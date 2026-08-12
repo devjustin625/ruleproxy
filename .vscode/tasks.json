@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build RuleProxy App exe",
+			"type": "shell",
+			"command": "C:/Users/Lab/AppData/Local/Programs/Python/Python313/python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name RuleProxy --icon icon.ico --add-data \"icon.ico;.\" run.py",
+			"group": "build"
+		}
+	]
+}

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
+# 图标源文件（可重新生成）
+icon.png
+
+# 系统
+Thumbs.db
