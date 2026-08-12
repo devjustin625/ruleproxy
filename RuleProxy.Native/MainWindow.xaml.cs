@@ -420,10 +420,21 @@ public partial class MainWindow : Window
     private void OnExit()
     {
         _exiting = true;
+        CleanupSystemProxy();
         _engine.Stop();
         _tray?.Dispose();
         _tray = null;
         System.Windows.Application.Current.Shutdown();
+    }
+
+    /// <summary>退出前清理系统代理：仅当系统代理正指向本程序监听端口时才清除，
+    /// 避免误删用户/其他代理软件（如 Clash 的 7890）设置的代理导致断网。</summary>
+    private void CleanupSystemProxy()
+    {
+        if (WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort))
+        {
+            WinProxy.ClearProxy();
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)

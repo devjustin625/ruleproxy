@@ -29,6 +29,20 @@ public static class WinProxy
         NotifyChange();
     }
 
+    /// <summary>读取当前系统代理地址（如 "127.0.0.1:8888"），未启用时返回 null。</summary>
+    public static string? GetProxyServer() =>
+        Registry.CurrentUser.OpenSubKey(InternetSettings)?.GetValue("ProxyServer") as string;
+
+    /// <summary>判断当前系统代理是否正指向给定监听地址（用于退出时只清除本程序设置的代理）。</summary>
+    public static bool IsSetTo(string host, int port)
+    {
+        if (!IsEnabled)
+        {
+            return false;
+        }
+        return string.Equals(GetProxyServer(), $"{host}:{port}", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void NotifyChange()
     {
         InternetSetOption(IntPtr.Zero, InternetOptionSettingsChanged, IntPtr.Zero, 0);
