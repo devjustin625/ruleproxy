@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _timer;
     private readonly ObservableCollection<ConnectionSession> _connections = [];
     private System.Windows.Forms.NotifyIcon? _tray;
+    private System.Windows.Forms.ToolStripMenuItem? _trayProxyItem;
+    private System.Windows.Forms.ToolStripMenuItem? _traySysItem;
     private bool _exiting;
     private bool _sysProxyActive;
 
@@ -80,6 +82,10 @@ public partial class MainWindow : Window
             : System.Windows.Media.Color.FromRgb(0x25, 0x63, 0xEB);
         ToggleProxyButton.Background = new SolidColorBrush(color);
         ToggleProxyButton.BorderBrush = new SolidColorBrush(color);
+        if (_trayProxyItem is not null)
+        {
+            _trayProxyItem.Text = running ? "停止代理" : "启动代理";
+        }
         StatusDot.Fill = running ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E))
                                  : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
         StatusText.Text = running ? "代理运行中" : "代理未启动";
@@ -87,7 +93,9 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------- 系统代理
 
-    private void OnToggleSystemProxy(object sender, RoutedEventArgs e)
+    private void OnToggleSystemProxy(object sender, RoutedEventArgs e) => ToggleSystemProxy();
+
+    private void ToggleSystemProxy()
     {
         if (_sysProxyActive)
         {
@@ -109,6 +117,10 @@ public partial class MainWindow : Window
         SysProxyButton.Foreground = _sysProxyActive ? new SolidColorBrush(Colors.White)
                                                     : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x37, 0x41, 0x51));
         SysProxyButton.BorderBrush = SysProxyButton.Background;
+        if (_traySysItem is not null)
+        {
+            _traySysItem.Text = _sysProxyActive ? "取消系统代理" : "设置系统代理";
+        }
     }
 
     // ------------------------------------------------------------- 规则管理
@@ -390,7 +402,7 @@ public partial class MainWindow : Window
         }
     });
 
-    private void OnSaveConfig(object sender, RoutedEventArgs e)
+    private void SaveConfig()
     {
         _store.Save(_config);
         System.Windows.MessageBox.Show(this, "配置已保存到 " + _store.ConfigPath, "已保存",
@@ -440,15 +452,29 @@ public partial class MainWindow : Window
         };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("显示主界面", null, (_, _) => ShowFromTray());
-        menu.Items.Add("启动代理", null, (_, _) => StartProxy());
-        menu.Items.Add("停止代理", null, (_, _) => _engine.Stop());
+        _trayProxyItem = new System.Windows.Forms.ToolStripMenuItem("启动代理");
+        _trayProxyItem.Click += (_, _) =>
+        {
+            if (_engine.Running)
+            {
+                _engine.Stop();
+            }
+            else
+            {
+                StartProxy();
+            }
+        };
+        menu.Items.Add(_trayProxyItem);
+        _traySysItem = new System.Windows.Forms.ToolStripMenuItem("设置系统代理");
+        _traySysItem.Click += (_, _) => ToggleSystemProxy();
+        menu.Items.Add(_traySysItem);
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("保存配置", null, (_, _) => SaveConfig());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("退出", null, (_, _) => OnExit());
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowFromTray();
     }
-
-    private void OnMinimizeToTray(object sender, RoutedEventArgs e) => HideToTray();
 
     private void HideToTray()
     {

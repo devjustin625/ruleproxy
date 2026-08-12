@@ -84,9 +84,7 @@
                             <TextBlock x:Name="ToggleProxyText" Text="启动代理" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button x:Name="SysProxyButton" Content="设置系统代理" Click="OnToggleSystemProxy" Margin="0,0,8,0"/>
-                    <Button Content="保存配置" Click="OnSaveConfig" Margin="0,0,8,0"/>
-                    <Button Content="最小化到托盘" Click="OnMinimizeToTray"/>
+                    <Button x:Name="SysProxyButton" Content="设置系统代理" Click="OnToggleSystemProxy"/>
                 </StackPanel>
             </Grid>
         </Border>
