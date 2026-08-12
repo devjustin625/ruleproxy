@@ -138,7 +138,7 @@
                                 <TextBlock Text="名称" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
                                 <TextBox x:Name="RuleNameBox" Width="150" Margin="0,0,12,0"/>
                                 <TextBlock Text="匹配类型" VerticalAlignment="Center" Margin="0,0,6,0" Width="60"/>
-                                <ComboBox x:Name="RuleTypeBox" Width="130" Margin="0,0,12,0">
+                                <ComboBox x:Name="RuleTypeBox" Width="130" Margin="0,0,12,0" SelectionChanged="OnRuleTypeChanged">
                                     <ComboBoxItem Content="目标端口" Tag="dest_port"/>
                                     <ComboBoxItem Content="目标主机/域名" Tag="dest_host"/>
                                     <ComboBoxItem Content="应用进程" Tag="process"/>
@@ -146,6 +146,8 @@
                                 </ComboBox>
                                 <TextBlock Text="匹配值" VerticalAlignment="Center" Margin="0,0,6,0" Width="50"/>
                                 <TextBox x:Name="RuleValueBox" Width="180"/>
+                                <Button x:Name="BrowseFileButton" Content="选择文件…" Click="OnBrowseFile" Margin="8,0,6,0"/>
+                                <Button x:Name="BrowseFolderButton" Content="选择文件夹…" Click="OnBrowseFolder"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="动作" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>

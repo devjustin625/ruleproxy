@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         _sysProxyActive = WinProxy.IsEnabled;
         UpdateSysProxyButton();
         UpdateProxyButtons();
+        UpdateBrowseButtons();
         StatusText.Text = "代理未启动";
 
         if (startMinimized)
@@ -119,6 +120,43 @@ public partial class MainWindow : Window
         RuleProxyBox.Text = rule.Proxy;
         RuleNoteBox.Text = rule.Note;
         RuleEnabledBox.IsChecked = rule.Enabled;
+    }
+
+    private void OnRuleTypeChanged(object sender, SelectionChangedEventArgs e) => UpdateBrowseButtons();
+
+    private void UpdateBrowseButtons()
+    {
+        var isProcess = (RuleTypeBox.SelectedItem as ComboBoxItem)?.Tag as string == "process";
+        BrowseFileButton.IsEnabled = isProcess;
+        BrowseFolderButton.IsEnabled = isProcess;
+    }
+
+    private void OnBrowseFile(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择要代理的程序",
+            Filter = "可执行程序 (*.exe)|*.exe|所有文件 (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            RuleValueBox.Text = dialog.FileName;
+        }
+    }
+
+    private void OnBrowseFolder(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog
+        {
+            Description = "选择文件夹（该文件夹内所有程序生效）",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false
+        };
+        if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+        {
+            RuleValueBox.Text = dialog.SelectedPath + "\\";
+        }
     }
 
     private void OnAddRule(object sender, RoutedEventArgs e)
