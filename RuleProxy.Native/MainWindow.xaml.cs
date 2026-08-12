@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private System.Windows.Forms.NotifyIcon? _tray;
     private System.Windows.Forms.ToolStripMenuItem? _trayProxyItem;
     private System.Windows.Forms.ToolStripMenuItem? _traySysItem;
+    private System.Windows.Forms.ToolStripMenuItem? _trayAutostartItem;
     private bool _exiting;
     private bool _sysProxyActive;
 
@@ -468,6 +469,16 @@ public partial class MainWindow : Window
         _traySysItem = new System.Windows.Forms.ToolStripMenuItem("设置系统代理");
         _traySysItem.Click += (_, _) => ToggleSystemProxy();
         menu.Items.Add(_traySysItem);
+        _trayAutostartItem = new System.Windows.Forms.ToolStripMenuItem("开机自启动")
+        {
+            Checked = Autostart.IsEnabled
+        };
+        _trayAutostartItem.Click += (_, _) =>
+        {
+            Autostart.SetEnabled(!_trayAutostartItem.Checked);
+            _trayAutostartItem.Checked = Autostart.IsEnabled;
+        };
+        menu.Items.Add(_trayAutostartItem);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("保存配置", null, (_, _) => SaveConfig());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
