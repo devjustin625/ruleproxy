@@ -1,0 +1,242 @@
+﻿<Window x:Class="RuleProxy.Native.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RuleProxy — 分应用 / 分端口代理"
+        Height="780" Width="1120"
+        WindowStartupLocation="CenterScreen"
+        Background="#F3F4F6">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#F3F4F6"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#2563EB"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 顶部状态与操作 -->
+        <Border Grid.Row="0" Background="White" CornerRadius="10" Padding="16,12" Margin="0,0,0,10"
+                BorderBrush="#E5E7EB" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="RuleProxy" FontSize="20" FontWeight="Bold" Foreground="#1F2937"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#9CA3AF" Margin="0,3,6,0"/>
+                        <TextBlock x:Name="StatusText" Text="代理未启动" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="StartButton" Content="启动代理" Style="{StaticResource PrimaryButton}" Click="OnStartProxy" Margin="0,0,8,0"/>
+                    <Button x:Name="StopButton" Content="停止代理" IsEnabled="False" Click="OnStopProxy" Margin="0,0,8,0"/>
+                    <Button x:Name="SysProxyButton" Content="设置系统代理" Click="OnToggleSystemProxy" Margin="0,0,8,0"/>
+                    <Button Content="保存配置" Click="OnSaveConfig" Margin="0,0,8,0"/>
+                    <Button Content="最小化到托盘" Click="OnMinimizeToTray"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 标签页 -->
+        <TabControl Grid.Row="1" x:Name="MainTabs" Background="White" BorderBrush="#E5E7EB">
+            <TabItem Header="连接">
+                <DataGrid x:Name="ConnectionsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                          RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
+                          BorderThickness="0" Background="White" Foreground="#374151"
+                          RowBackground="White" AlternatingRowBackground="#FAFAFA"
+                          EnableRowVirtualization="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="时间" Binding="{Binding Timestamp}" Width="72"/>
+                        <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
+                        <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150"/>
+                        <DataGridTextColumn Header="目标" Binding="{Binding Destination}" Width="220"/>
+                        <DataGridTextColumn Header="规则" Binding="{Binding RuleName}" Width="170"/>
+                        <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="70"/>
+                        <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="80"/>
+                        <DataGridTextColumn Header="上行" Binding="{Binding UpBytes}" Width="90"/>
+                        <DataGridTextColumn Header="下行" Binding="{Binding DownBytes}" Width="90"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="规则">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <DataGrid x:Name="RulesGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
+                              BorderThickness="0" Background="White" Foreground="#374151"
+                              SelectionChanged="OnRuleSelected">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="140"/>
+                            <DataGridTextColumn Header="匹配类型" Binding="{Binding MatchTypeText}" Width="110"/>
+                            <DataGridTextColumn Header="匹配值" Binding="{Binding MatchValue}" Width="200"/>
+                            <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="70"/>
+                            <DataGridTextColumn Header="代理" Binding="{Binding Proxy}" Width="120"/>
+                            <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled}" Width="60"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Row="1" Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="1"
+                            CornerRadius="8" Padding="10" Margin="0,8,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="名称" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="RuleNameBox" Width="150" Margin="0,0,12,0"/>
+                                <TextBlock Text="匹配类型" VerticalAlignment="Center" Margin="0,0,6,0" Width="60"/>
+                                <ComboBox x:Name="RuleTypeBox" Width="130" Margin="0,0,12,0">
+                                    <ComboBoxItem Content="目标端口" Tag="dest_port"/>
+                                    <ComboBoxItem Content="目标主机/域名" Tag="dest_host"/>
+                                    <ComboBoxItem Content="应用进程" Tag="process"/>
+                                    <ComboBoxItem Content="客户端源端口" Tag="src_port"/>
+                                </ComboBox>
+                                <TextBlock Text="匹配值" VerticalAlignment="Center" Margin="0,0,6,0" Width="50"/>
+                                <TextBox x:Name="RuleValueBox" Width="180"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="动作" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <ComboBox x:Name="RuleActionBox" Width="90" Margin="0,0,12,0">
+                                    <ComboBoxItem Content="直连" Tag="direct"/>
+                                    <ComboBoxItem Content="代理" Tag="proxy"/>
+                                    <ComboBoxItem Content="阻止" Tag="block"/>
+                                </ComboBox>
+                                <TextBlock Text="代理" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="RuleProxyBox" Width="120" Margin="0,0,12,0"/>
+                                <TextBlock Text="备注" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="RuleNoteBox" Width="180" Margin="0,0,12,0"/>
+                                <CheckBox x:Name="RuleEnabledBox" Content="启用" IsChecked="True" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="AddRuleButton" Content="添加规则" Style="{StaticResource PrimaryButton}" Click="OnAddRule" Margin="0,0,8,0"/>
+                                <Button x:Name="UpdateRuleButton" Content="更新选中" Click="OnUpdateRule" Margin="0,0,8,0"/>
+                                <Button x:Name="DeleteRuleButton" Content="删除" Click="OnDeleteRule" Margin="0,0,8,0"/>
+                                <Button Content="上移" Click="OnMoveRuleUp" Margin="0,0,8,0"/>
+                                <Button Content="下移" Click="OnMoveRuleDown"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="上游代理">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <DataGrid x:Name="UpstreamsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
+                              BorderThickness="0" Background="White" Foreground="#374151"
+                              SelectionChanged="OnUpstreamSelected">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="140"/>
+                            <DataGridTextColumn Header="类型" Binding="{Binding TypeText}" Width="80"/>
+                            <DataGridTextColumn Header="主机" Binding="{Binding Host}" Width="160"/>
+                            <DataGridTextColumn Header="端口" Binding="{Binding Port}" Width="80"/>
+                            <DataGridTextColumn Header="用户名" Binding="{Binding Username}" Width="120"/>
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled}" Width="60"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Row="1" Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="1"
+                            CornerRadius="8" Padding="10" Margin="0,8,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="名称" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="UpNameBox" Width="140" Margin="0,0,12,0"/>
+                                <TextBlock Text="类型" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <ComboBox x:Name="UpTypeBox" Width="90" Margin="0,0,12,0">
+                                    <ComboBoxItem Content="HTTP" Tag="http"/>
+                                    <ComboBoxItem Content="SOCKS5" Tag="socks5"/>
+                                </ComboBox>
+                                <TextBlock Text="主机" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="UpHostBox" Width="150" Margin="0,0,12,0"/>
+                                <TextBlock Text="端口" VerticalAlignment="Center" Margin="0,0,6,0" Width="40"/>
+                                <TextBox x:Name="UpPortBox" Width="70" Margin="0,0,12,0"/>
+                                <CheckBox x:Name="UpEnabledBox" Content="启用" IsChecked="True" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="用户名" VerticalAlignment="Center" Margin="0,0,6,0" Width="60"/>
+                                <TextBox x:Name="UpUserBox" Width="150" Margin="0,0,12,0"/>
+                                <TextBlock Text="密码" VerticalAlignment="Center" Margin="0,0,6,0" Width="60"/>
+                                <TextBox x:Name="UpPassBox" Width="150"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="AddUpButton" Content="添加上游" Style="{StaticResource PrimaryButton}" Click="OnAddUpstream" Margin="0,0,8,0"/>
+                                <Button x:Name="UpdateUpButton" Content="更新选中" Click="OnUpdateUpstream" Margin="0,0,8,0"/>
+                                <Button Content="删除" Click="OnDeleteUpstream"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="日志">
+                <TextBox x:Name="LogBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                         BorderThickness="0" Background="#FAFAFA" Foreground="#374151"
+                         VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" Padding="8"/>
+            </TabItem>
+        </TabControl>
+
+        <!-- 底部统计 -->
+        <Border Grid.Row="2" Background="White" CornerRadius="8" Padding="14,8" Margin="0,10,0,0"
+                BorderBrush="#E5E7EB" BorderThickness="1">
+            <TextBlock x:Name="StatsText" Text="连接 0 · 累计上行 0 B · 累计下行 0 B"
+                       FontSize="12" Foreground="#6B7280"/>
+        </Border>
+    </Grid>
+</Window>

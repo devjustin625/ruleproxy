@@ -21,3 +21,10 @@ _*.txt
 
 # 系统
 Thumbs.db
+
+# .NET 构建产物
+bin/
+obj/
+*.user
+.vs/
+
