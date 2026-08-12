@@ -13,5 +13,11 @@ dist/
 # 图标源文件（可重新生成）
 icon.png
 
+# 上传包与临时文件
+RuleProxy-src.zip
+.vscode/
+_*.log
+_*.txt
+
 # 系统
 Thumbs.db
