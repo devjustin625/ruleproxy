@@ -39,7 +39,7 @@ public partial class MainWindow : Window
 
         _sysProxyActive = WinProxy.IsEnabled;
         UpdateSysProxyButton();
-        UpdateProxyButtons();
+        UpdateProxyButton();
         UpdateBrowseButtons();
         StatusText.Text = "代理未启动";
 
@@ -51,23 +51,35 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------- 代理启停
 
-    private void OnStartProxy(object sender, RoutedEventArgs e) => StartProxy();
+    private void OnToggleProxy(object sender, RoutedEventArgs e)
+    {
+        if (_engine.Running)
+        {
+            _engine.Stop();
+        }
+        else
+        {
+            StartProxy();
+        }
+    }
 
     private void StartProxy()
     {
-        _config.ListenHost = _config.ListenHost;
         _engine.Start();
     }
 
-    private void OnStopProxy(object sender, RoutedEventArgs e) => _engine.Stop();
+    private void OnEngineStateChanged() => Dispatcher.Invoke(UpdateProxyButton);
 
-    private void OnEngineStateChanged() => Dispatcher.Invoke(UpdateProxyButtons);
-
-    private void UpdateProxyButtons()
+    private void UpdateProxyButton()
     {
         var running = _engine.Running;
-        StartButton.IsEnabled = !running;
-        StopButton.IsEnabled = running;
+        ToggleProxyIcon.Text = running ? "\uE769" : "\uE768"; // Stop / Play
+        ToggleProxyText.Text = running ? "停止代理" : "启动代理";
+        var color = running
+            ? System.Windows.Media.Color.FromRgb(0xDC, 0x26, 0x26)
+            : System.Windows.Media.Color.FromRgb(0x25, 0x63, 0xEB);
+        ToggleProxyButton.Background = new SolidColorBrush(color);
+        ToggleProxyButton.BorderBrush = new SolidColorBrush(color);
         StatusDot.Fill = running ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E))
                                  : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
         StatusText.Text = running ? "代理运行中" : "代理未启动";

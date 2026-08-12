@@ -78,8 +78,12 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="StartButton" Content="启动代理" Style="{StaticResource PrimaryButton}" Click="OnStartProxy" Margin="0,0,8,0"/>
-                    <Button x:Name="StopButton" Content="停止代理" IsEnabled="False" Click="OnStopProxy" Margin="0,0,8,0"/>
+                    <Button x:Name="ToggleProxyButton" Style="{StaticResource PrimaryButton}" Click="OnToggleProxy" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="ToggleProxyIcon" Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ToggleProxyText" Text="启动代理" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                     <Button x:Name="SysProxyButton" Content="设置系统代理" Click="OnToggleSystemProxy" Margin="0,0,8,0"/>
                     <Button Content="保存配置" Click="OnSaveConfig" Margin="0,0,8,0"/>
                     <Button Content="最小化到托盘" Click="OnMinimizeToTray"/>
