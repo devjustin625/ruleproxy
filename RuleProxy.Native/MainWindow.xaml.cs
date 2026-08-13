@@ -8,6 +8,8 @@ using RuleProxy.Native.Core;
 
 namespace RuleProxy.Native;
 
+public sealed record LogEntry(string Time, string Message);
+
 /// <summary>主窗口：代理启停、系统代理、规则/上游管理、连接与日志展示、托盘常驻。</summary>
 public partial class MainWindow : Window
 {
@@ -16,6 +18,7 @@ public partial class MainWindow : Window
     private readonly ProxyEngine _engine;
     private readonly DispatcherTimer _timer;
     private readonly ObservableCollection<ConnectionSession> _connections = [];
+    private readonly ObservableCollection<LogEntry> _logs = [];
     private System.Windows.Forms.NotifyIcon? _tray;
     private System.Windows.Forms.ToolStripMenuItem? _trayProxyItem;
     private System.Windows.Forms.ToolStripMenuItem? _traySysItem;
@@ -32,8 +35,10 @@ public partial class MainWindow : Window
         _engine.LogsChanged += OnLogsChanged;
 
         ConnectionsGrid.ItemsSource = _connections;
+    LogGrid.ItemsSource = _logs;
         ReloadRuleList();
         ReloadUpstreamList();
+        ReloadActionProxyComboBox();
         SetupTray();
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
@@ -165,8 +170,7 @@ public partial class MainWindow : Window
         RuleNameBox.Text = rule.Name;
         SelectComboByTag(RuleTypeBox, rule.MatchType);
         RuleValueBox.Text = rule.MatchValue;
-        SelectComboByTag(RuleActionBox, rule.Action);
-        RuleProxyBox.Text = rule.Proxy;
+        SelectActionProxyComboBox(rule.Action, rule.Proxy);
         RuleNoteBox.Text = rule.Note;
         RuleEnabledBox.IsChecked = rule.Enabled;
     }
@@ -221,22 +225,13 @@ public partial class MainWindow : Window
         _store.Save(_config);
     }
 
-    /// <summary>表格中勾选/取消“代理”或“启用”复选框（含空格键切换）后保存——无需点击“更新选中”。</summary>
-    private void OnRulesGridCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+    /// <summary>规则列表中“启用”复选框单击即生效并保存（无需先选中行再编辑）。</summary>
+    private void OnRuleEnabledClicked(object sender, RoutedEventArgs e)
     {
-        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is ProxyRule)
+        if (sender is System.Windows.Controls.CheckBox box && box.DataContext is ProxyRule rule)
         {
+            rule.Enabled = box.IsChecked == true;
             _store.Save(_config);
-        }
-    }
-
-    /// <summary>单击复选框时立即提交编辑，实现“点一下就生效并保存”。</summary>
-    private void OnRulesGridMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is System.Windows.Controls.CheckBox)
-        {
-            RulesGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-            RulesGrid.CommitEdit(DataGridEditingUnit.Row, true);
         }
     }
 
@@ -298,12 +293,63 @@ public partial class MainWindow : Window
             Name = RuleNameBox.Text.Trim(),
             MatchType = (RuleTypeBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "dest_port",
             MatchValue = RuleValueBox.Text.Trim(),
-            Action = (RuleActionBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "direct",
-            Proxy = RuleProxyBox.Text.Trim(),
+            Action = ReadActionProxyFromEditor().Action,
+            Proxy = ReadActionProxyFromEditor().Proxy,
             Note = RuleNoteBox.Text.Trim(),
             Enabled = RuleEnabledBox.IsChecked == true
         };
     }
+
+    // ------------------------------------------------------- 动作/代理合并下拉
+
+    /// <summary>从合并下拉框中读取动作与代理：选中上游项→代理动作；否则按固定项标签。</summary>
+    private (string Action, string Proxy) ReadActionProxyFromEditor()
+    {
+        var item = RuleActionProxyBox.SelectedItem;
+        if (item is UpstreamConfig upstream)
+        {
+            return ("proxy", upstream.Name);
+        }
+        return ((item as ComboBoxItem)?.Tag as string) == "block"
+            ? ("block", "")
+            : ("direct", "");
+    }
+
+    /// <summary>填充合并下拉框：固定项 直连/阻止，随后每个启用的上游代理一项。</summary>
+    private void ReloadActionProxyComboBox()
+    {
+        RuleActionProxyBox.SelectionChanged -= OnRuleActionProxyChanged;
+        try
+        {
+            RuleActionProxyBox.Items.Clear();
+            RuleActionProxyBox.Items.Add(new ComboBoxItem { Content = "直连（不走代理）", Tag = "direct" });
+            RuleActionProxyBox.Items.Add(new ComboBoxItem { Content = "阻止（拦截连接）", Tag = "block" });
+            foreach (var upstream in _config.Proxies.Where(p => p.Enabled))
+            {
+                RuleActionProxyBox.Items.Add(upstream);
+            }
+            RuleActionProxyBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            RuleActionProxyBox.SelectionChanged += OnRuleActionProxyChanged;
+        }
+    }
+
+    /// <summary>按 动作+代理名 定位合并下拉框；action=proxy 精确匹配代理名，找不到（含 proxy="" 旧规则）则选第一个启用的代理。</summary>
+    private void SelectActionProxyComboBox(string action, string proxyName)
+    {
+        if (action != "proxy")
+        {
+            SelectComboByTag(RuleActionProxyBox, action == "block" ? "block" : "direct");
+            return;
+        }
+        var enabled = _config.Proxies.Where(p => p.Enabled).ToList();
+        var index = enabled.FindIndex(p => p.Name == proxyName);
+        RuleActionProxyBox.SelectedIndex = index >= 0 ? 2 + index : (enabled.Count > 0 ? 2 : 0);
+    }
+
+    private void OnRuleActionProxyChanged(object sender, SelectionChangedEventArgs e) { }
 
     // ------------------------------------------------------------- 上游管理
 
@@ -337,6 +383,7 @@ public partial class MainWindow : Window
         }
         _config.Proxies.Add(upstream);
         ReloadUpstreamList();
+        ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = upstream;
         _store.Save(_config);
     }
@@ -355,6 +402,7 @@ public partial class MainWindow : Window
         var index = _config.Proxies.IndexOf(upstream);
         _config.Proxies[index] = updated;
         ReloadUpstreamList();
+        ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = _config.Proxies[index];
         _store.Save(_config);
     }
@@ -367,6 +415,7 @@ public partial class MainWindow : Window
         }
         _config.Proxies.Remove(upstream);
         ReloadUpstreamList();
+        ReloadActionProxyComboBox();
         _store.Save(_config);
     }
 
@@ -412,11 +461,7 @@ public partial class MainWindow : Window
 
         foreach (var line in _engine.DrainLogs())
         {
-            LogBox.AppendText(line + "\r\n");
-        }
-        if (LogBox.Text.Length > 100_000)
-        {
-            LogBox.Clear();
+            AppendLog(line);
         }
     }
 
@@ -424,9 +469,23 @@ public partial class MainWindow : Window
     {
         foreach (var line in _engine.DrainLogs())
         {
-            LogBox.AppendText(line + "\r\n");
+            AppendLog(line);
         }
     });
+
+    private void AppendLog(string line)
+    {
+        var hasTimestamp = line.Length >= 11 && line[0] == '[' && line[9] == ']';
+        var entry = hasTimestamp
+            ? new LogEntry(line[1..9], line[11..])
+            : new LogEntry("", line);
+        _logs.Add(entry);
+        if (_logs.Count > 1000)
+        {
+            _logs.RemoveAt(0);
+        }
+        LogGrid.ScrollIntoView(entry);
+    }
 
     private void SaveConfig()
     {

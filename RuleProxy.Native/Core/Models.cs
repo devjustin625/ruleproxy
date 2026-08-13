@@ -28,6 +28,12 @@ public sealed class UpstreamConfig
 
     [JsonIgnore]
     public string TypeText => Type == "socks5" ? "SOCKS5" : "HTTP";
+
+    /// <summary>下拉框中的显示文本，便于区分同名代理。</summary>
+    [JsonIgnore]
+    public string ComboText => $"{Name}（{TypeText} {Host}:{Port}）";
+
+    public override string ToString() => ComboText;
 }
 
 public sealed class ProxyRule : INotifyPropertyChanged
@@ -39,8 +45,21 @@ public sealed class ProxyRule : INotifyPropertyChanged
     [JsonPropertyName("name")]
     public string Name { get; set; } = "新规则";
 
+    private bool _enabled = true;
+
     [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; } = true;
+    public bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            if (_enabled != value)
+            {
+                _enabled = value;
+                OnPropertyChanged(nameof(Enabled));
+            }
+        }
+    }
 
     [JsonPropertyName("match_type")]
     public string MatchType { get; set; } = "dest_port";
@@ -56,24 +75,6 @@ public sealed class ProxyRule : INotifyPropertyChanged
 
     [JsonPropertyName("note")]
     public string Note { get; set; } = "";
-
-    /// <summary>勾选=走代理，取消=直连（供表格中的“代理”复选框列使用）。</summary>
-    [JsonIgnore]
-    public bool ProxyChecked
-    {
-        get => Action == "proxy";
-        set
-        {
-            var target = value ? "proxy" : "direct";
-            if (Action != target)
-            {
-                Action = target;
-                OnPropertyChanged(nameof(ProxyChecked));
-                OnPropertyChanged(nameof(Action));
-                OnPropertyChanged(nameof(ActionText));
-            }
-        }
-    }
 
     [JsonIgnore]
     public string MatchTypeText => MatchType switch
