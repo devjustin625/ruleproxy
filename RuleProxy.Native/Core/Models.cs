@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
 
 namespace RuleProxy.Native.Core;
@@ -29,8 +30,12 @@ public sealed class UpstreamConfig
     public string TypeText => Type == "socks5" ? "SOCKS5" : "HTTP";
 }
 
-public sealed class ProxyRule
+public sealed class ProxyRule : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
     [JsonPropertyName("name")]
     public string Name { get; set; } = "新规则";
 
@@ -51,6 +56,24 @@ public sealed class ProxyRule
 
     [JsonPropertyName("note")]
     public string Note { get; set; } = "";
+
+    /// <summary>勾选=走代理，取消=直连（供表格中的“代理”复选框列使用）。</summary>
+    [JsonIgnore]
+    public bool ProxyChecked
+    {
+        get => Action == "proxy";
+        set
+        {
+            var target = value ? "proxy" : "direct";
+            if (Action != target)
+            {
+                Action = target;
+                OnPropertyChanged(nameof(ProxyChecked));
+                OnPropertyChanged(nameof(Action));
+                OnPropertyChanged(nameof(ActionText));
+            }
+        }
+    }
 
     [JsonIgnore]
     public string MatchTypeText => MatchType switch

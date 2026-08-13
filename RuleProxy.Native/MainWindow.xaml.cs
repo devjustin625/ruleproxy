@@ -221,22 +221,23 @@ public partial class MainWindow : Window
         _store.Save(_config);
     }
 
-    private void OnUpdateRule(object sender, RoutedEventArgs e)
+    /// <summary>表格中勾选/取消“代理”或“启用”复选框（含空格键切换）后保存——无需点击“更新选中”。</summary>
+    private void OnRulesGridCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        if (RulesGrid.SelectedItem is not ProxyRule rule)
+        if (e.EditAction == DataGridEditAction.Commit && e.Row.Item is ProxyRule)
         {
-            return;
+            _store.Save(_config);
         }
-        var updated = ReadRuleFromEditor();
-        if (updated is null)
+    }
+
+    /// <summary>单击复选框时立即提交编辑，实现“点一下就生效并保存”。</summary>
+    private void OnRulesGridMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is System.Windows.Controls.CheckBox)
         {
-            return;
+            RulesGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            RulesGrid.CommitEdit(DataGridEditingUnit.Row, true);
         }
-        var index = _config.Rules.IndexOf(rule);
-        _config.Rules[index] = updated;
-        ReloadRuleList();
-        RulesGrid.SelectedItem = _config.Rules[index];
-        _store.Save(_config);
     }
 
     private void OnDeleteRule(object sender, RoutedEventArgs e)

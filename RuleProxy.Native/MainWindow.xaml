@@ -118,19 +118,20 @@
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <DataGrid x:Name="RulesGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                    <DataGrid x:Name="RulesGrid" AutoGenerateColumns="False"
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                               RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
                               BorderThickness="0" Background="White" Foreground="#374151"
-                              SelectionChanged="OnRuleSelected">
+                              SelectionChanged="OnRuleSelected" CellEditEnding="OnRulesGridCellEditEnding"
+                              PreviewMouseLeftButtonDown="OnRulesGridMouseDown">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="140"/>
-                            <DataGridTextColumn Header="匹配类型" Binding="{Binding MatchTypeText}" Width="110"/>
-                            <DataGridTextColumn Header="匹配值" Binding="{Binding MatchValue}" Width="200"/>
-                            <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="70"/>
-                            <DataGridTextColumn Header="代理" Binding="{Binding Proxy}" Width="120"/>
-                            <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*"/>
-                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled}" Width="60"/>
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="140" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="匹配类型" Binding="{Binding MatchTypeText}" Width="110" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="匹配值" Binding="{Binding MatchValue}" Width="200" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="70" IsReadOnly="True"/>
+                            <DataGridCheckBoxColumn Header="代理" Binding="{Binding ProxyChecked, Mode=TwoWay}" Width="80"/>
+                            <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*" IsReadOnly="True"/>
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled, Mode=TwoWay}" Width="60"/>
                         </DataGrid.Columns>
                     </DataGrid>
                     <Border Grid.Row="1" Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="1"
@@ -166,7 +167,6 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                 <Button x:Name="AddRuleButton" Content="添加规则" Style="{StaticResource PrimaryButton}" Click="OnAddRule" Margin="0,0,8,0"/>
-                                <Button x:Name="UpdateRuleButton" Content="更新选中" Click="OnUpdateRule" Margin="0,0,8,0"/>
                                 <Button x:Name="DeleteRuleButton" Content="删除" Click="OnDeleteRule" Margin="0,0,8,0"/>
                                 <Button Content="上移" Click="OnMoveRuleUp" Margin="0,0,8,0"/>
                                 <Button Content="下移" Click="OnMoveRuleDown"/>
