@@ -17,10 +17,15 @@ echo [2/3] 发布为单文件自包含 exe...
     -p:EnableCompressionInSingleFile=true ^
     -o "dist\native" -v q || goto :err
 
-echo [3/3] 复制测试项目（可选）...
+echo [3/3] 复制到桌面（可选）...
+copy /Y "dist\native\RuleProxy.exe" "%USERPROFILE%\Desktop\RuleProxy.exe" >nul 2>nul
+copy /Y "dist\native\RuleProxy.exe" "%LOCALAPPDATA%\RuleProxy\RuleProxy.exe" >nul 2>nul
 echo.
-echo 完成！产物：dist\native\RuleProxy.exe
+echo 完成！
+echo   产物：dist\native\RuleProxy.exe
+echo   桌面：%USERPROFILE%\Desktop\RuleProxy.exe
 echo 直接双击运行；也支持命令行参数 --minimized 启动即最小化到托盘。
+echo 自启动始终使用当前 exe 实际路径，支持任意目录运行。
 goto :eof
 
 :err

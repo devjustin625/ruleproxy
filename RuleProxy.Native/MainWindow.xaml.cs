@@ -46,6 +46,30 @@ public partial class MainWindow : Window
         UpdateBrowseButtons();
         StatusText.Text = "代理未启动";
 
+        // 设置页初始化
+        LoadSettings();
+        Autostart.SyncToCurrentPath(); // 如果 exe 换了位置，自动更新注册表
+        UpdateAutostartPathText();
+
+        // 启动时恢复状态
+        if (_config.RememberLastState)
+        {
+            if (_config.LastProxyRunning)
+            {
+                StartProxy();
+            }
+            if (_config.LastSysProxyEnabled)
+            {
+                WinProxy.SetProxy(_config.ListenHost, _config.HttpPort);
+                _sysProxyActive = true;
+                UpdateSysProxyButton();
+            }
+        }
+        else if (_config.AutoStartProxy)
+        {
+            StartProxy();
+        }
+
         if (startMinimized)
         {
             HideToTray();
@@ -506,6 +530,11 @@ public partial class MainWindow : Window
 
     private void OnExit()
     {
+        // 保存上次状态
+        _config.LastProxyRunning = _engine.Running;
+        _config.LastSysProxyEnabled = _sysProxyActive;
+        _store.Save(_config);
+
         _exiting = true;
         CleanupSystemProxy();
         _engine.Stop();
@@ -526,11 +555,63 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        // 关闭窗口时保存状态（可能用户直接关窗口而不是点退出）
+        _config.LastProxyRunning = _engine.Running;
+        _config.LastSysProxyEnabled = _sysProxyActive;
+        _store.Save(_config);
+
         if (!_exiting)
         {
             e.Cancel = true;
             HideToTray();
         }
         base.OnClosing(e);
+    }
+
+    // ------------------------------------------------------------- 设置页
+
+    private void LoadSettings()
+    {
+        AutoStartProxyCheckBox.IsChecked = _config.AutoStartProxy;
+        RememberLastStateCheckBox.IsChecked = _config.RememberLastState;
+        AutostartCheckBox.IsChecked = Autostart.IsEnabled;
+    }
+
+    private void UpdateAutostartPathText()
+    {
+        var path = Autostart.RegistryExePath;
+        AutostartPathText.Text = path is not null
+            ? $"当前注册路径：{path}"
+            : "未设置开机自启动";
+    }
+
+    private void OnAutostartCheckChanged(object sender, RoutedEventArgs e)
+    {
+        var enabled = AutostartCheckBox.IsChecked == true;
+        Autostart.SetEnabled(enabled);
+        AutostartCheckBox.IsChecked = Autostart.IsEnabled;
+        UpdateAutostartPathText();
+    }
+
+    private void OnSaveSettings(object sender, RoutedEventArgs e)
+    {
+        _config.AutoStartProxy = AutoStartProxyCheckBox.IsChecked == true;
+        _config.RememberLastState = RememberLastStateCheckBox.IsChecked == true;
+        if (!_config.RememberLastState)
+        {
+            // 取消延续状态时，清除上次记录的状态
+            _config.LastProxyRunning = false;
+            _config.LastSysProxyEnabled = false;
+        }
+        _store.Save(_config);
+        System.Windows.MessageBox.Show(this, "设置已保存", "RuleProxy",
+            MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void OnSaveConfigFile(object sender, RoutedEventArgs e)
+    {
+        _store.Save(_config);
+        System.Windows.MessageBox.Show(this, "配置已保存到 " + _store.ConfigPath, "已保存",
+            MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

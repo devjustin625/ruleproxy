@@ -90,6 +90,18 @@ public sealed class AppConfig
     [JsonPropertyName("start_minimized")]
     public bool StartMinimized { get; set; }
 
+    [JsonPropertyName("auto_start_proxy")]
+    public bool AutoStartProxy { get; set; }
+
+    [JsonPropertyName("remember_last_state")]
+    public bool RememberLastState { get; set; }
+
+    [JsonPropertyName("last_proxy_running")]
+    public bool LastProxyRunning { get; set; }
+
+    [JsonPropertyName("last_sysproxy_enabled")]
+    public bool LastSysProxyEnabled { get; set; }
+
     [JsonPropertyName("rules")]
     public List<ProxyRule> Rules { get; set; } = [];
 

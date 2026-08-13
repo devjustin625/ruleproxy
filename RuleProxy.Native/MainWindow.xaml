@@ -234,6 +234,43 @@
                          BorderThickness="0" Background="#FAFAFA" Foreground="#374151"
                          VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" Padding="8"/>
             </TabItem>
+
+            <TabItem Header="设置">
+                <Border Background="#FAFAFA" BorderBrush="#E5E7EB" BorderThickness="1"
+                        CornerRadius="8" Padding="20" Margin="8">
+                    <StackPanel>
+                        <TextBlock Text="启动行为" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#1F2937" Margin="0,0,0,12"/>
+                        <CheckBox x:Name="AutoStartProxyCheckBox" Content="启动后自动开启代理"
+                                  FontSize="13" Margin="0,0,0,8"
+                                  ToolTip="程序启动时自动开始代理服务，无需手动点击“启动代理”按钮"/>  
+                        <CheckBox x:Name="RememberLastStateCheckBox" Content="延续上次关闭时状态"
+                                  FontSize="13" Margin="0,0,0,4"
+                                  ToolTip="记住退出时代理和系统代理的状态，下次启动时自动恢复"/>
+                        <TextBlock Text="勾选此项后，每次启动会自动恢复上次退出时的代理运行状态和系统代理开关状态，优先级高于&#x201C;启动后自动开启代理&#x201D;。"
+                                   FontSize="11" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="24,0,0,16"/>
+
+                        <Separator Margin="0,0,0,12"/>
+
+                        <TextBlock Text="开机自启动" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#1F2937" Margin="0,0,0,12"/>
+                        <CheckBox x:Name="AutostartCheckBox" Content="开机自启动"
+                                  FontSize="13" Margin="0,0,0,4" Click="OnAutostartCheckChanged"/>
+                        <TextBlock x:Name="AutostartPathText" FontSize="10" Foreground="#9CA3AF"
+                                   TextWrapping="Wrap" Margin="24,0,0,0"/>
+
+                        <Separator Margin="0,0,0,12"/>
+
+                        <TextBlock Text="保存" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#1F2937" Margin="0,0,0,12"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="SaveSettingsButton" Content="保存设置" Style="{StaticResource PrimaryButton}"
+                                    Click="OnSaveSettings" Margin="0,0,8,0"/>
+                            <Button Content="保存配置到文件…" Click="OnSaveConfigFile"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </TabItem>
         </TabControl>
 
         <!-- 底部统计 -->
