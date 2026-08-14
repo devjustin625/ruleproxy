@@ -221,6 +221,31 @@ public partial class MainWindow : Window
         _store.Save(_config);
     }
 
+    private void OnSaveRule(object sender, RoutedEventArgs e)
+    {
+        if (RulesGrid.SelectedItem is not ProxyRule selectedRule)
+        {
+            System.Windows.MessageBox.Show(this, "请先从列表中选择要修改的规则", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var updatedRule = ReadRuleFromEditor();
+        if (updatedRule is null)
+        {
+            return;
+        }
+        selectedRule.Name = updatedRule.Name;
+        selectedRule.MatchType = updatedRule.MatchType;
+        selectedRule.MatchValue = updatedRule.MatchValue;
+        selectedRule.Action = updatedRule.Action;
+        selectedRule.Proxy = updatedRule.Proxy;
+        selectedRule.Note = updatedRule.Note;
+        selectedRule.Enabled = updatedRule.Enabled;
+        ReloadRuleList();
+        RulesGrid.SelectedItem = selectedRule;
+        _store.Save(_config);
+    }
+
     /// <summary>规则列表中“启用”复选框单击即生效并保存（无需先选中行再编辑）。</summary>
     private void OnRuleEnabledClicked(object sender, RoutedEventArgs e)
     {
@@ -392,6 +417,46 @@ public partial class MainWindow : Window
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = upstream;
+        _store.Save(_config);
+    }
+
+    private void OnSaveUpstream(object sender, RoutedEventArgs e)
+    {
+        if (UpstreamsGrid.SelectedItem is not UpstreamConfig selectedUpstream)
+        {
+            System.Windows.MessageBox.Show(this, "请先从列表中选择要修改的上游代理", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var updatedUpstream = ReadUpstreamFromEditor();
+        if (updatedUpstream is null)
+        {
+            return;
+        }
+        var previousName = selectedUpstream.Name;
+        selectedUpstream.Name = updatedUpstream.Name;
+        selectedUpstream.Type = updatedUpstream.Type;
+        selectedUpstream.Host = updatedUpstream.Host;
+        selectedUpstream.Port = updatedUpstream.Port;
+        selectedUpstream.Username = updatedUpstream.Username;
+        selectedUpstream.Password = updatedUpstream.Password;
+        selectedUpstream.Enabled = updatedUpstream.Enabled;
+
+        if (!string.Equals(previousName, selectedUpstream.Name, StringComparison.Ordinal))
+        {
+            foreach (var rule in _config.Rules.Where(rule => rule.Proxy == previousName))
+            {
+                rule.Proxy = selectedUpstream.Name;
+            }
+            if (_config.DefaultProxy == previousName)
+            {
+                _config.DefaultProxy = selectedUpstream.Name;
+            }
+            ReloadRuleList();
+        }
+        ReloadUpstreamList();
+        ReloadActionProxyComboBox();
+        UpstreamsGrid.SelectedItem = selectedUpstream;
         _store.Save(_config);
     }
 

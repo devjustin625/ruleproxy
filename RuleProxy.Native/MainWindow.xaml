@@ -242,7 +242,6 @@
                             <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="1.2*" MinWidth="110" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTextColumn Header="匹配类型" Binding="{Binding MatchTypeText}" Width="120" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTextColumn Header="匹配值" Binding="{Binding MatchValue}" Width="2.5*" MinWidth="220" ElementStyle="{StaticResource CellText}"/>
-                            <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="100" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="1.5*" MinWidth="110" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTemplateColumn Header="启用" Width="70" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -287,7 +286,7 @@
                                 </ComboBox>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,0">
-                                <TextBlock Text="动作/代理" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                                <TextBlock Text="代理方式" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
                                 <ComboBox x:Name="RuleActionProxyBox"
                                           ToolTip="选择直连、阻止，或一个上游代理"/>
                             </StackPanel>
@@ -331,6 +330,8 @@
                                                         Click="OnMoveRuleDown" Margin="6,0,0,0"/>
                                                 <Button Content="删除" MinWidth="0" Padding="8,0"
                                                         Click="OnDeleteRule" Margin="6,0,0,0"/>
+                                                 <Button Content="保存修改" MinWidth="0" Padding="10,0"
+                                                     Click="OnSaveRule" Margin="6,0,0,0"/>
                                                 <Button x:Name="AddRuleButton" Content="添加规则" MinWidth="0" Padding="10,0"
                                                         Style="{StaticResource PrimaryButton}" Click="OnAddRule"
                                                         Margin="6,0,0,0"/>
@@ -431,6 +432,7 @@
                                     BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,12,0,0">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                     <Button Content="删除" Click="OnDeleteUpstream" Margin="0,0,8,0"/>
+                                     <Button Content="保存修改" Click="OnSaveUpstream" Margin="0,0,8,0"/>
                                     <Button x:Name="AddUpButton" Content="添加上游" Style="{StaticResource PrimaryButton}"
                                             Click="OnAddUpstream"/>
                                 </StackPanel>
