@@ -360,7 +360,17 @@
                             <DataGridTextColumn Header="主机" Binding="{Binding Host}" Width="160" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTextColumn Header="端口" Binding="{Binding Port}" Width="80" ElementStyle="{StaticResource CellText}"/>
                             <DataGridTextColumn Header="用户名" Binding="{Binding Username}" Width="120" ElementStyle="{StaticResource CellText}"/>
-                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled}" Width="60"/>
+                            <DataGridTemplateColumn Header="启用" Width="60" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}"
+                                                  Focusable="False"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                  Click="OnUpstreamEnabledClicked"
+                                                  ToolTip="单击立即启用/停用并保存"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                     <Border Grid.Row="1" Background="{StaticResource SubtleBrush}"
@@ -421,7 +431,6 @@
                                     BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,12,0,0">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                     <Button Content="删除" Click="OnDeleteUpstream" Margin="0,0,8,0"/>
-                                    <Button x:Name="UpdateUpButton" Content="更新选中" Click="OnUpdateUpstream" Margin="0,0,8,0"/>
                                     <Button x:Name="AddUpButton" Content="添加上游" Style="{StaticResource PrimaryButton}"
                                             Click="OnAddUpstream"/>
                                 </StackPanel>
@@ -460,6 +469,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <Grid Grid.Row="0" Margin="16,14">
@@ -482,6 +492,21 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
+                                        <TextBlock Text="开机静默启动" FontWeight="Medium" Foreground="{StaticResource TextBrush}"/>
+                                        <TextBlock Text="开机自启动时不显示主窗口，直接在系统托盘后台运行" FontSize="12"
+                                                   Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
+                                    </StackPanel>
+                                    <CheckBox x:Name="StartMinimizedCheckBox" Grid.Column="1" VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                                <Grid Margin="16,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
                                         <TextBlock Text="恢复上次状态" FontWeight="Medium" Foreground="{StaticResource TextBrush}"/>
                                         <TextBlock Text="恢复退出时的代理和系统代理状态；启用后优先于自动开启代理"
                                                    FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
@@ -490,7 +515,7 @@
                                 </Grid>
                             </Border>
 
-                            <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                            <Border Grid.Row="3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
                                 <Grid Margin="16,14">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>

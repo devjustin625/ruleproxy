@@ -21,9 +21,13 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
         var startMinimized = e.Args.Any(arg => arg is "--minimized" or "-m");
-        var window = new MainWindow(startMinimized);
+        var window = new MainWindow();
         MainWindow = window;
         window.Show();
+        if (startMinimized)
+        {
+            window.HideToTray(showNotification: false);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

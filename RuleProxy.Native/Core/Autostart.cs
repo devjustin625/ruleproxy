@@ -5,7 +5,7 @@ namespace RuleProxy.Native.Core;
 
 /// <summary>开机自启动：通过 HKCU Run 注册表键实现。
 /// 每次启用时始终使用当前 exe 实际路径，支持任意目录运行。
-/// 启动参数 --minimized 让程序开机后最小化到托盘。</summary>
+/// 可按设置附加 --minimized 参数，让程序开机后最小化到托盘。</summary>
 public static class Autostart
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -32,7 +32,7 @@ public static class Autostart
         }
     }
 
-    public static void SetEnabled(bool enabled)
+    public static void SetEnabled(bool enabled, bool startMinimized)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath);
         if (enabled)
@@ -42,7 +42,8 @@ public static class Autostart
             {
                 return;
             }
-            key.SetValue(ValueName, $"\"{exePath}\" --minimized", RegistryValueKind.String);
+            var arguments = startMinimized ? " --minimized" : "";
+            key.SetValue(ValueName, $"\"{exePath}\"{arguments}", RegistryValueKind.String);
         }
         else
         {
@@ -52,7 +53,7 @@ public static class Autostart
 
     /// <summary>如果当前 exe 路径与注册表记录不一致，更新为当前路径。
     /// 用户把 exe 移动到其他目录后运行，调用此方法可自动修正自启动指向。</summary>
-    public static void SyncToCurrentPath()
+    public static void SyncToCurrentPath(bool startMinimized)
     {
         if (!IsEnabled) return;
         var currentExe = Environment.ProcessPath;
@@ -60,7 +61,7 @@ public static class Autostart
         if (string.IsNullOrEmpty(currentExe) || !File.Exists(currentExe)) return;
         if (string.Equals(currentExe, registered, StringComparison.OrdinalIgnoreCase)) return;
         // 路径变了，更新
-        SetEnabled(true);
+        SetEnabled(true, startMinimized);
     }
 
     /// <summary>从注册表值中提取 exe 路径（去掉引号和参数）。</summary>

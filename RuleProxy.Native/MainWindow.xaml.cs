@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     private bool _exiting;
     private bool _sysProxyActive;
 
-    public MainWindow(bool startMinimized)
+    public MainWindow()
     {
         InitializeComponent();
         _config = _store.Load();
@@ -53,7 +53,7 @@ public partial class MainWindow : Window
 
         // 设置页初始化
         LoadSettings();
-        Autostart.SyncToCurrentPath(); // 如果 exe 换了位置，自动更新注册表
+        Autostart.SyncToCurrentPath(_config.StartMinimized); // 如果 exe 换了位置，自动更新注册表
         UpdateAutostartPathText();
 
         // 启动时恢复状态
@@ -75,10 +75,6 @@ public partial class MainWindow : Window
             StartProxy();
         }
 
-        if (startMinimized)
-        {
-            HideToTray();
-        }
     }
 
     // ------------------------------------------------------------- 代理启停
@@ -374,6 +370,17 @@ public partial class MainWindow : Window
         UpEnabledBox.IsChecked = upstream.Enabled;
     }
 
+    /// <summary>上游列表中“启用”复选框单击即生效并保存。</summary>
+    private void OnUpstreamEnabledClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.CheckBox box && box.DataContext is UpstreamConfig upstream)
+        {
+            upstream.Enabled = box.IsChecked == true;
+            ReloadActionProxyComboBox();
+            _store.Save(_config);
+        }
+    }
+
     private void OnAddUpstream(object sender, RoutedEventArgs e)
     {
         var upstream = ReadUpstreamFromEditor();
@@ -385,25 +392,6 @@ public partial class MainWindow : Window
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = upstream;
-        _store.Save(_config);
-    }
-
-    private void OnUpdateUpstream(object sender, RoutedEventArgs e)
-    {
-        if (UpstreamsGrid.SelectedItem is not UpstreamConfig upstream)
-        {
-            return;
-        }
-        var updated = ReadUpstreamFromEditor();
-        if (updated is null)
-        {
-            return;
-        }
-        var index = _config.Proxies.IndexOf(upstream);
-        _config.Proxies[index] = updated;
-        ReloadUpstreamList();
-        ReloadActionProxyComboBox();
-        UpstreamsGrid.SelectedItem = _config.Proxies[index];
         _store.Save(_config);
     }
 
@@ -559,7 +547,7 @@ public partial class MainWindow : Window
         };
         _trayAutostartItem.Click += (_, _) =>
         {
-            Autostart.SetEnabled(!_trayAutostartItem.Checked);
+            Autostart.SetEnabled(!_trayAutostartItem.Checked, _config.StartMinimized);
             _trayAutostartItem.Checked = Autostart.IsEnabled;
         };
         menu.Items.Add(_trayAutostartItem);
@@ -571,10 +559,10 @@ public partial class MainWindow : Window
         _tray.DoubleClick += (_, _) => ShowFromTray();
     }
 
-    private void HideToTray()
+    internal void HideToTray(bool showNotification = true)
     {
         Hide();
-        if (_tray is not null)
+        if (showNotification && _tray is not null)
         {
             _tray.Visible = true;
             _tray.ShowBalloonTip(1200, "RuleProxy", "已最小化到托盘，代理仍在后台运行", System.Windows.Forms.ToolTipIcon.Info);
@@ -632,6 +620,7 @@ public partial class MainWindow : Window
 
     private void LoadSettings()
     {
+        StartMinimizedCheckBox.IsChecked = _config.StartMinimized;
         AutoStartProxyCheckBox.IsChecked = _config.AutoStartProxy;
         RememberLastStateCheckBox.IsChecked = _config.RememberLastState;
         AutostartCheckBox.IsChecked = Autostart.IsEnabled;
@@ -648,13 +637,14 @@ public partial class MainWindow : Window
     private void OnAutostartCheckChanged(object sender, RoutedEventArgs e)
     {
         var enabled = AutostartCheckBox.IsChecked == true;
-        Autostart.SetEnabled(enabled);
+        Autostart.SetEnabled(enabled, _config.StartMinimized);
         AutostartCheckBox.IsChecked = Autostart.IsEnabled;
         UpdateAutostartPathText();
     }
 
     private void OnSaveSettings(object sender, RoutedEventArgs e)
     {
+        _config.StartMinimized = StartMinimizedCheckBox.IsChecked == true;
         _config.AutoStartProxy = AutoStartProxyCheckBox.IsChecked == true;
         _config.RememberLastState = RememberLastStateCheckBox.IsChecked == true;
         if (!_config.RememberLastState)
@@ -664,6 +654,10 @@ public partial class MainWindow : Window
             _config.LastSysProxyEnabled = false;
         }
         _store.Save(_config);
+        if (Autostart.IsEnabled)
+        {
+            Autostart.SetEnabled(true, _config.StartMinimized);
+        }
         System.Windows.MessageBox.Show(this, "设置已保存", "RuleProxy",
             MessageBoxButton.OK, MessageBoxImage.Information);
     }
