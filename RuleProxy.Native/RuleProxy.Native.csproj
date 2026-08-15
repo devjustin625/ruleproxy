@@ -10,13 +10,14 @@
     <AssemblyName>RuleProxy</AssemblyName>
     <RootNamespace>RuleProxy.Native</RootNamespace>
     <ApplicationIcon>..\icon.ico</ApplicationIcon>
-    <Version>1.2.7</Version>
+    <Version>1.2.8</Version>
     <PublishSingleFile>false</PublishSingleFile>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="..\icon.ico" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

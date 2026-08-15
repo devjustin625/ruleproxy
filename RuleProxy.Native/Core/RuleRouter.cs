@@ -1,11 +1,15 @@
 using System.IO;
 using System.Net;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace RuleProxy.Native.Core;
 
 public static class RuleRouter
 {
+    private const int MaxPortMatcherCache = 1024;
+    private static readonly ConcurrentDictionary<string, PortMatcher> PortMatchers = new(StringComparer.Ordinal);
+
     public static RouteResult PickRoute(AppConfig config, RouteContext context)
     {
         foreach (var rule in config.Rules)
@@ -91,8 +95,8 @@ public static class RuleRouter
         {
             "process" => SplitValues(rule.MatchValue).Any(value =>
                 ProcessMatches(value, context.Process, context.ProcessExe)),
-            "dest_port" => ParsePorts(rule.MatchValue).Contains(context.DestinationPort),
-            "src_port" => ParsePorts(rule.MatchValue).Contains(context.SourcePort),
+            "dest_port" => GetPortMatcher(rule.MatchValue).Contains(context.DestinationPort),
+            "src_port" => GetPortMatcher(rule.MatchValue).Contains(context.SourcePort),
             "dest_host" => SplitValues(rule.MatchValue).Any(value => HostMatches(value, context.DestinationHost)),
             _ => false
         };
@@ -124,8 +128,15 @@ public static class RuleRouter
             return actual == expected;
         }
 
-        return processName.Equals(value, StringComparison.OrdinalIgnoreCase) ||
-            (value.Length >= 2 && processName.StartsWith(value, StringComparison.OrdinalIgnoreCase));
+        var expectedName = Path.GetFileNameWithoutExtension(value);
+        var actualName = Path.GetFileNameWithoutExtension(processName);
+        if (value.Contains('*') || value.Contains('?'))
+        {
+            var regex = "^" + Regex.Escape(expectedName).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+            return Regex.IsMatch(actualName, regex, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        return actualName.Equals(expectedName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static RouteResult BuildResult(AppConfig config, string action, string proxyName, string ruleName)
@@ -137,7 +148,7 @@ public static class RuleRouter
 
         var upstream = FindUpstream(config, proxyName);
         return upstream is null
-            ? new RouteResult("direct", null, ruleName + "（无可用代理→直连）")
+            ? new RouteResult("block", null, ruleName + "（无可用代理→阻止）")
             : new RouteResult("proxy", upstream, ruleName);
     }
 
@@ -164,4 +175,59 @@ public static class RuleRouter
         value.Contains('\\') || value.Contains('/') || Path.IsPathRooted(value);
 
     private static string NormalizePath(string value) => value.Replace('/', '\\').ToLowerInvariant();
+
+    private static PortMatcher GetPortMatcher(string value)
+    {
+        value ??= "";
+        if (PortMatchers.TryGetValue(value, out var cached))
+        {
+            return cached;
+        }
+
+        var matcher = PortMatcher.Parse(value);
+        if (PortMatchers.Count >= MaxPortMatcherCache)
+        {
+            PortMatchers.Clear();
+        }
+        return PortMatchers.GetOrAdd(value, matcher);
+    }
+
+    private sealed class PortMatcher
+    {
+        private readonly HashSet<int> _ports;
+        private readonly List<(int Start, int End)> _ranges;
+
+        private PortMatcher(HashSet<int> ports, List<(int Start, int End)> ranges)
+        {
+            _ports = ports;
+            _ranges = ranges;
+        }
+
+        public bool Contains(int port) => _ports.Contains(port) || _ranges.Any(range => port >= range.Start && port <= range.End);
+
+        public static PortMatcher Parse(string value)
+        {
+            var ports = new HashSet<int>();
+            var ranges = new List<(int Start, int End)>();
+            foreach (var part in SplitValues(value))
+            {
+                var bounds = part.Split('-', 2, StringSplitOptions.TrimEntries);
+                if (bounds.Length == 2 && int.TryParse(bounds[0], out var start) && int.TryParse(bounds[1], out var end))
+                {
+                    start = Math.Max(0, start);
+                    end = Math.Min(65535, end);
+                    if (start <= end)
+                    {
+                        ranges.Add((start, end));
+                    }
+                }
+                else if (int.TryParse(part, out var port) && port is >= 0 and <= 65535)
+                {
+                    ports.Add(port);
+                }
+            }
+
+            return new PortMatcher(ports, ranges);
+        }
+    }
 }

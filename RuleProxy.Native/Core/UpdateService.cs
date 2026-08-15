@@ -2,11 +2,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace RuleProxy.Native.Core;
 
-public sealed record UpdateRelease(Version Version, string TagName, string ReleaseUrl, string DownloadUrl);
+public sealed record UpdateRelease(Version Version, string TagName, string ReleaseUrl, string DownloadUrl, string Sha256);
 
 public sealed class UpdateService
 {
@@ -71,7 +72,7 @@ public sealed class UpdateService
                 await input.CopyToAsync(output, cancellationToken);
             }
 
-            if (!IsExecutable(temporaryPath))
+            if (!IsExecutable(temporaryPath) || !MatchesSha256(temporaryPath, release.Sha256))
             {
                 File.Delete(temporaryPath);
                 return null;
@@ -112,9 +113,12 @@ public sealed class UpdateService
             foreach (var asset in assets.EnumerateArray())
             {
                 if (asset.TryGetProperty("name", out var name) && name.GetString() == AssetName &&
-                    asset.TryGetProperty("browser_download_url", out var url) && Uri.TryCreate(url.GetString(), UriKind.Absolute, out _))
+                    asset.TryGetProperty("browser_download_url", out var url) &&
+                    TryGetTrustedAssetUrl(url.GetString(), out var downloadUrl) &&
+                    asset.TryGetProperty("digest", out var digest) &&
+                    TryGetSha256(digest.GetString(), out var sha256))
                 {
-                    release = new UpdateRelease(version, tagElement.GetString()!, pageElement.GetString() ?? "", url.GetString()!);
+                    release = new UpdateRelease(version, tagElement.GetString()!, pageElement.GetString() ?? "", downloadUrl, sha256);
                     return true;
                 }
             }
@@ -268,6 +272,57 @@ public sealed class UpdateService
         {
             using var file = File.OpenRead(path);
             return file.Length >= 2 && file.ReadByte() == 'M' && file.ReadByte() == 'Z';
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetTrustedAssetUrl(string? value, out string url)
+    {
+        url = "";
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var parsed) ||
+            parsed.Scheme != Uri.UriSchemeHttps ||
+            !string.Equals(parsed.Host, "github.com", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(parsed.Host, "objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        url = parsed.ToString();
+        return true;
+    }
+
+    private static bool TryGetSha256(string? value, out string sha256)
+    {
+        sha256 = "";
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var normalized = value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? value[7..]
+            : value;
+        if (normalized.Length != 64 || !normalized.All(Uri.IsHexDigit))
+        {
+            return false;
+        }
+
+        sha256 = normalized.ToLowerInvariant();
+        return true;
+    }
+
+    private static bool MatchesSha256(string path, string expected)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var actual = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            return CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.ASCII.GetBytes(actual),
+                System.Text.Encoding.ASCII.GetBytes(expected));
         }
         catch (IOException)
         {

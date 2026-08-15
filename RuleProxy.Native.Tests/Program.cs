@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.IO;
+using RuleProxy.Native;
 using RuleProxy.Native.Core;
 
 var failures = 0;
@@ -16,11 +18,30 @@ void Check(string name, bool condition)
 Check("更新版本去除 v 和提交后缀", UpdateService.NormalizeVersion("v1.2.6+commit.42") == new Version(1, 2, 6));
 Check("更新版本比较同版本", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.5\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
 Check("更新版本比较旧版本", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.4\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
-Check("更新 Release 缺少 exe 资产", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"other.exe\",\"browser_download_url\":\"https://example.test/other.exe\"}]}", new Version(1, 2, 5), out _));
-Check("更新 Release 解析可用资产", UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6+commit.1\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out var updateRelease) && updateRelease!.Version == new Version(1, 2, 6));
+Check("更新 Release 缺少 exe 资产", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"other.exe\",\"browser_download_url\":\"https://github.com/example/other.exe\",\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}", new Version(1, 2, 5), out _));
+Check("更新 Release 必须包含摘要", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://github.com/example/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
+Check("更新 Release 解析可信资产", UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6+commit.1\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://github.com/example/RuleProxy.exe\",\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}", new Version(1, 2, 5), out var updateRelease) && updateRelease!.Version == new Version(1, 2, 6) && updateRelease.Sha256.Length == 64);
 var applyArguments = UpdateService.BuildApplyUpdateArguments(1234, @"downloads\RuleProxy.exe", @"target\RuleProxy.exe", minimized: true);
 Check("更新参数使用绝对路径并保留最小化", applyArguments.Count == 5 && applyArguments[0] == "--apply-update" && Path.IsPathFullyQualified(applyArguments[2]) && Path.IsPathFullyQualified(applyArguments[3]) && applyArguments[4] == "--minimized");
 Check("旧配置默认启用更新检查", JsonSerializer.Deserialize<AppConfig>("{}")!.CheckUpdates);
+
+var configTestDirectory = Path.Combine(Path.GetTempPath(), "RuleProxy-tests-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(configTestDirectory);
+try
+{
+    var configPath = Path.Combine(configTestDirectory, "config.json");
+    var passwordConfig = new AppConfig();
+    passwordConfig.Proxies.Add(new UpstreamConfig { Name = "secure", Password = "secret-password" });
+    var passwordStore = new ConfigStore(configPath);
+    passwordStore.Save(passwordConfig);
+    var savedText = File.ReadAllText(configPath);
+    Check("配置文件不保存明文密码", !savedText.Contains("secret-password", StringComparison.Ordinal));
+    Check("DPAPI 密码可还原", passwordStore.Load().Proxies[0].Password == "secret-password");
+}
+finally
+{
+    try { Directory.Delete(configTestDirectory, recursive: true); } catch { }
+}
 
 // ---- 1. 系统代理终结点匹配（不读取真实注册表） ----
 Check("系统代理精确终结点匹配", WinProxy.IsProxyServerSetTo(true, "127.0.0.1:8888", "127.0.0.1", 8888));
@@ -51,6 +72,14 @@ var ports = RuleRouter.ParsePorts("80,443");
 Check("端口列表解析", ports.Contains(80) && ports.Contains(443) && !ports.Contains(8080));
 var range = RuleRouter.ParsePorts("8000-8002");
 Check("端口段解析", range.Contains(8000) && range.Contains(8001) && range.Contains(8002) && range.Count == 3);
+var wideRangeConfig = new AppConfig { DefaultAction = "direct" };
+wideRangeConfig.Rules.Add(new ProxyRule { MatchType = "dest_port", MatchValue = "0-65535", Action = "block" });
+Check("宽端口范围匹配", RuleRouter.PickRoute(
+    wideRangeConfig, new RouteContext("", "", "x.com", 65535, 12345)).Action == "block");
+Check("宽端口范围不误匹配非法端口", RuleRouter.PickRoute(
+    wideRangeConfig, new RouteContext("", "", "x.com", 65536, 12345)).Action == "direct");
+Check("CSV 普通字段不加引号", MainWindow.CsvEscape("direct") == "direct");
+Check("CSV 特殊字段正确转义", MainWindow.CsvEscape("a,b\"c\n") == "\"a,b\"\"c\n\"");
 
 // ---- 3. 域名通配 ----
 Check("域名通配匹配", RuleRouter.HostMatches("*.example.com", "www.example.com"));
@@ -92,6 +121,18 @@ Check("HTTP 监听异常退出后清理状态", lifecycleEngine.Running && !life
 Check("HTTP 监听异常退出触发状态变更", Volatile.Read(ref lifecycleStateChanges) >= 2);
 lifecycleEngine.Stop();
 
+var historyEngineConfig = new AppConfig
+{
+    ListenHost = "127.0.0.1",
+    HttpPort = FreePort(),
+    Socks5Port = FreePort()
+};
+var historyEngine = new ProxyEngine(() => historyEngineConfig);
+historyEngine.Start();
+historyEngine.ClearHistory();
+Check("清空历史接口可用", historyEngine.Snapshot().History.Count == 0);
+historyEngine.Stop();
+
 // ---- 6. 规则路由 ----
 var direct = RuleRouter.PickRoute(config, new RouteContext("", "", "x.com", 80, 12345));
 Check("默认直连", direct.Action == "direct");
@@ -101,8 +142,29 @@ Check("端口规则走代理", viaProxy.Action == "proxy" && viaProxy.Upstream!.
 
 config.Proxies[0].Enabled = false;
 var disabledProxy = RuleRouter.PickRoute(config, new RouteContext("", "", "x.com", 8080, 12345));
-Check("已停用上游不参与路由", disabledProxy.Action == "direct" && disabledProxy.Upstream is null);
+Check("已停用上游阻止连接", disabledProxy.Action == "block" && disabledProxy.Upstream is null);
 config.Proxies[0].Enabled = true;
+
+var processConfig = new AppConfig();
+processConfig.Proxies.Add(new UpstreamConfig { Name = "p1", Enabled = true });
+processConfig.Rules.Add(new ProxyRule
+{
+    Name = "process",
+    MatchType = "process",
+    MatchValue = "notepad.exe",
+    Action = "proxy",
+    Proxy = "p1"
+});
+Check("进程规则兼容 exe 后缀", RuleRouter.PickRoute(
+    processConfig, new RouteContext("notepad", "", "x.com", 80, 12345)).Action == "proxy");
+Check("进程规则不做隐式前缀匹配", RuleRouter.PickRoute(
+    processConfig, new RouteContext("notepad-helper", "", "x.com", 80, 12345)).Action == "direct");
+
+var invalidListenConfig = new AppConfig { ListenHost = "0.0.0.0" };
+Check("拒绝非回环监听", !invalidListenConfig.IsValidForListening(out _));
+
+var invalidPortConfig = new AppConfig { HttpPort = 0, Socks5Port = 8888 };
+Check("拒绝非法或重复监听端口", !invalidPortConfig.IsValidForListening(out _));
 
 config.Rules.Add(new ProxyRule { Name = "r2", MatchType = "dest_host", MatchValue = "blocked.com", Action = "block" });
 var blocked = RuleRouter.PickRoute(config, new RouteContext("", "", "blocked.com", 80, 12345));

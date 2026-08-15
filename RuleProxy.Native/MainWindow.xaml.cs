@@ -2,6 +2,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -19,15 +21,26 @@ public partial class MainWindow : Window
     private readonly AppConfig _config;
     private readonly ProxyEngine _engine;
     private readonly DispatcherTimer _timer;
+    private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly bool _startMinimized;
     private readonly ObservableCollection<ConnectionSession> _connections = [];
+    private readonly List<ConnectionSession> _allConnections = [];
     private readonly ObservableCollection<LogEntry> _logs = [];
     private System.Windows.Forms.NotifyIcon? _tray;
     private System.Windows.Forms.ToolStripMenuItem? _trayProxyItem;
     private System.Windows.Forms.ToolStripMenuItem? _traySysItem;
     private System.Windows.Forms.ToolStripMenuItem? _trayAutostartItem;
+    private System.Windows.Forms.ToolStripMenuItem? _trayStatusItem;
     private bool _exiting;
     private bool _sysProxyActive;
+    private bool _loadingEditor;
+    private bool _ruleEditorDirty;
+    private bool _upstreamEditorDirty;
+    private bool _settingsDirty;
+    private bool _loadingSettings;
+    private bool _initializingUi = true;
+    private ProxyRule? _editingRule;
+    private UpstreamConfig? _editingUpstream;
 
     public MainWindow(bool startMinimized = false)
     {
@@ -76,7 +89,8 @@ public partial class MainWindow : Window
         {
             StartProxy();
         }
-        Loaded += async (_, _) => await CheckForUpdatesAsync(automatic: true);
+        Loaded += async (_, _) => await CheckForUpdatesAsync(automatic: true, _lifetimeCts.Token);
+        _initializingUi = false;
     }
 
     // ------------------------------------------------------------- 代理启停
@@ -85,7 +99,22 @@ public partial class MainWindow : Window
     {
         if (_engine.Running)
         {
+            if (WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort))
+            {
+                var result = System.Windows.MessageBox.Show(this,
+                    "系统代理当前正在使用 RuleProxy。停止代理后系统流量可能无法连接。是否同时关闭系统代理？",
+                    "停止代理", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                if (result == MessageBoxResult.Cancel)
+                {
+                    return;
+                }
+                if (result == MessageBoxResult.Yes)
+                {
+                    WinProxy.ClearProxy();
+                }
+            }
             _engine.Stop();
+            SyncSystemProxyState();
         }
         else
         {
@@ -119,11 +148,16 @@ public partial class MainWindow : Window
         {
             _trayProxyItem.Text = running ? "停止代理" : "启动代理";
         }
+        if (_trayStatusItem is not null)
+        {
+            _trayStatusItem.Text = $"状态：{(running ? "运行中" : "未启动")} · HTTP {(httpListening ? "已监听" : "未监听")} · SOCKS5 {(_engine.Running ? "已监听" : "未监听")}";
+            _trayStatusItem.Enabled = false;
+        }
         StatusDot.Fill = running ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E))
                                  : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
         StatusText.Text = running
             ? (httpListening ? "代理运行中" : "代理运行中（HTTP 未监听）")
-            : "代理未启动";
+            : (_sysProxyActive ? "代理未启动（系统代理仍开启）" : "代理未启动");
     }
 
     // ------------------------------------------------------------- 系统代理
@@ -218,21 +252,74 @@ public partial class MainWindow : Window
         {
             return;
         }
+        if (_editingRule is not null && !ReferenceEquals(_editingRule, rule) && !ConfirmPendingRuleEdit())
+        {
+            RulesGrid.SelectedItem = _editingRule;
+            return;
+        }
+        _loadingEditor = true;
         RuleNameBox.Text = rule.Name;
         SelectComboByTag(RuleTypeBox, rule.MatchType);
         RuleValueBox.Text = rule.MatchValue;
         SelectActionProxyComboBox(rule.Action, rule.Proxy);
         RuleNoteBox.Text = rule.Note;
         RuleEnabledBox.IsChecked = rule.Enabled;
+        _editingRule = rule;
+        _ruleEditorDirty = false;
+        _loadingEditor = false;
+        UpdateDirtyIndicators();
+        UpdateRuleActionButtons();
     }
 
-    private void OnRuleTypeChanged(object sender, SelectionChangedEventArgs e) => UpdateBrowseButtons();
+    private void OnRuleTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateBrowseButtons();
+        OnRuleEditorSelectionChanged(sender, e);
+    }
+
+    private void OnRuleEditorChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loadingEditor && !_initializingUi)
+        {
+            _ruleEditorDirty = true;
+            UpdateDirtyIndicators();
+            UpdateRuleActionButtons();
+        }
+    }
+
+    private void OnRuleEditorSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loadingEditor && !_initializingUi)
+        {
+            _ruleEditorDirty = true;
+            UpdateDirtyIndicators();
+            UpdateRuleActionButtons();
+        }
+    }
 
     private void UpdateBrowseButtons()
     {
         var isProcess = (RuleTypeBox.SelectedItem as ComboBoxItem)?.Tag as string == "process";
         BrowseFileButton.IsEnabled = isProcess;
         BrowseFolderButton.IsEnabled = isProcess;
+    }
+
+    private void UpdateRuleActionButtons()
+    {
+        var selectedRule = RulesGrid.SelectedItem as ProxyRule;
+        var index = selectedRule is null ? -1 : _config.Rules.IndexOf(selectedRule);
+        MoveRuleUpButton.IsEnabled = index > 0;
+        MoveRuleDownButton.IsEnabled = index >= 0 && index < _config.Rules.Count - 1;
+        DeleteRuleButton.IsEnabled = selectedRule is not null;
+        SaveRuleButton.IsEnabled = selectedRule is not null && _ruleEditorDirty;
+    }
+
+    private void UpdateUpstreamActionButtons()
+    {
+        var selected = UpstreamsGrid.SelectedItem is UpstreamConfig;
+        TestUpstreamButton.IsEnabled = selected || !string.IsNullOrWhiteSpace(UpHostBox.Text);
+        DeleteUpstreamButton.IsEnabled = selected;
+        SaveUpstreamButton.IsEnabled = selected && _upstreamEditorDirty;
     }
 
     private void OnBrowseFile(object sender, RoutedEventArgs e)
@@ -263,6 +350,28 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnNewRule(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmPendingRuleEdit())
+        {
+            return;
+        }
+
+        _loadingEditor = true;
+        RulesGrid.SelectedItem = null;
+        RuleNameBox.Text = "";
+        SelectComboByTag(RuleTypeBox, "dest_port");
+        RuleValueBox.Text = "";
+        SelectActionProxyComboBox("direct", "");
+        RuleNoteBox.Text = "";
+        RuleEnabledBox.IsChecked = true;
+        _editingRule = null;
+        _ruleEditorDirty = false;
+        _loadingEditor = false;
+        UpdateDirtyIndicators();
+        UpdateRuleActionButtons();
+    }
+
     private void OnAddRule(object sender, RoutedEventArgs e)
     {
         var rule = ReadRuleFromEditor();
@@ -273,7 +382,19 @@ public partial class MainWindow : Window
         _config.Rules.Add(rule);
         ReloadRuleList();
         RulesGrid.SelectedItem = rule;
-        _store.Save(_config);
+        if (TrySaveConfig())
+        {
+            _editingRule = rule;
+            _ruleEditorDirty = false;
+            UpdateDirtyIndicators();
+        }
+        else
+        {
+            _config.Rules.Remove(rule);
+            ReloadRuleList();
+            _editingRule = null;
+            UpdateRuleActionButtons();
+        }
     }
 
     private void OnSaveRule(object sender, RoutedEventArgs e)
@@ -289,6 +410,16 @@ public partial class MainWindow : Window
         {
             return;
         }
+        var backup = new ProxyRule
+        {
+            Name = selectedRule.Name,
+            MatchType = selectedRule.MatchType,
+            MatchValue = selectedRule.MatchValue,
+            Action = selectedRule.Action,
+            Proxy = selectedRule.Proxy,
+            Note = selectedRule.Note,
+            Enabled = selectedRule.Enabled
+        };
         selectedRule.Name = updatedRule.Name;
         selectedRule.MatchType = updatedRule.MatchType;
         selectedRule.MatchValue = updatedRule.MatchValue;
@@ -298,7 +429,24 @@ public partial class MainWindow : Window
         selectedRule.Enabled = updatedRule.Enabled;
         ReloadRuleList();
         RulesGrid.SelectedItem = selectedRule;
-        _store.Save(_config);
+        if (TrySaveConfig())
+        {
+            _editingRule = selectedRule;
+            _ruleEditorDirty = false;
+            UpdateDirtyIndicators();
+        }
+        else
+        {
+            selectedRule.Name = backup.Name;
+            selectedRule.MatchType = backup.MatchType;
+            selectedRule.MatchValue = backup.MatchValue;
+            selectedRule.Action = backup.Action;
+            selectedRule.Proxy = backup.Proxy;
+            selectedRule.Note = backup.Note;
+            selectedRule.Enabled = backup.Enabled;
+            ReloadRuleList();
+            RulesGrid.SelectedItem = selectedRule;
+        }
     }
 
     /// <summary>规则列表中“启用”复选框单击即生效并保存（无需先选中行再编辑）。</summary>
@@ -306,8 +454,13 @@ public partial class MainWindow : Window
     {
         if (sender is System.Windows.Controls.CheckBox box && box.DataContext is ProxyRule rule)
         {
+            var previous = rule.Enabled;
             rule.Enabled = box.IsChecked == true;
-            _store.Save(_config);
+            if (!TrySaveConfig())
+            {
+                rule.Enabled = previous;
+                box.IsChecked = previous;
+            }
         }
     }
 
@@ -317,9 +470,18 @@ public partial class MainWindow : Window
         {
             return;
         }
+        var result = System.Windows.MessageBox.Show(this, $"确定删除规则“{rule.Name}”吗？", "确认删除",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
         _config.Rules.Remove(rule);
         ReloadRuleList();
-        _store.Save(_config);
+        TrySaveConfig();
+        _editingRule = null;
+        _ruleEditorDirty = false;
+        UpdateDirtyIndicators();
     }
 
     private void OnMoveRuleUp(object sender, RoutedEventArgs e)
@@ -336,7 +498,7 @@ public partial class MainWindow : Window
         (_config.Rules[index], _config.Rules[index - 1]) = (_config.Rules[index - 1], _config.Rules[index]);
         ReloadRuleList();
         RulesGrid.SelectedItem = _config.Rules[index - 1];
-        _store.Save(_config);
+        TrySaveConfig();
     }
 
     private void OnMoveRuleDown(object sender, RoutedEventArgs e)
@@ -353,7 +515,7 @@ public partial class MainWindow : Window
         (_config.Rules[index], _config.Rules[index + 1]) = (_config.Rules[index + 1], _config.Rules[index]);
         ReloadRuleList();
         RulesGrid.SelectedItem = _config.Rules[index + 1];
-        _store.Save(_config);
+        TrySaveConfig();
     }
 
     private ProxyRule? ReadRuleFromEditor()
@@ -394,7 +556,9 @@ public partial class MainWindow : Window
     /// <summary>填充合并下拉框：固定项 直连/阻止，随后每个启用的上游代理一项。</summary>
     private void ReloadActionProxyComboBox()
     {
-        RuleActionProxyBox.SelectionChanged -= OnRuleActionProxyChanged;
+        var selectedAction = _editingRule?.Action ?? "direct";
+        var selectedProxy = _editingRule?.Proxy ?? "";
+        _loadingEditor = true;
         try
         {
             RuleActionProxyBox.Items.Clear();
@@ -404,11 +568,11 @@ public partial class MainWindow : Window
             {
                 RuleActionProxyBox.Items.Add(upstream);
             }
-            RuleActionProxyBox.SelectedIndex = 0;
+            SelectActionProxyComboBox(selectedAction, selectedProxy);
         }
         finally
         {
-            RuleActionProxyBox.SelectionChanged += OnRuleActionProxyChanged;
+            _loadingEditor = false;
         }
     }
 
@@ -425,8 +589,6 @@ public partial class MainWindow : Window
         RuleActionProxyBox.SelectedIndex = index >= 0 ? 2 + index : (enabled.Count > 0 ? 2 : 0);
     }
 
-    private void OnRuleActionProxyChanged(object sender, SelectionChangedEventArgs e) { }
-
     // ------------------------------------------------------------- 上游管理
 
     private void ReloadUpstreamList()
@@ -441,23 +603,86 @@ public partial class MainWindow : Window
         {
             return;
         }
+        if (_editingUpstream is not null && !ReferenceEquals(_editingUpstream, upstream) && !ConfirmPendingUpstreamEdit())
+        {
+            UpstreamsGrid.SelectedItem = _editingUpstream;
+            return;
+        }
+        _loadingEditor = true;
         UpNameBox.Text = upstream.Name;
         SelectComboByTag(UpTypeBox, upstream.Type);
         UpHostBox.Text = upstream.Host;
         UpPortBox.Text = upstream.Port.ToString();
         UpUserBox.Text = upstream.Username;
-        UpPassBox.Text = upstream.Password;
+        UpPassBox.Password = upstream.Password;
         UpEnabledBox.IsChecked = upstream.Enabled;
+        _editingUpstream = upstream;
+        _upstreamEditorDirty = false;
+        _loadingEditor = false;
+        UpdateDirtyIndicators();
+        UpdateUpstreamActionButtons();
     }
+
+    private void OnUpstreamEditorChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loadingEditor && !_initializingUi)
+        {
+            _upstreamEditorDirty = true;
+            UpdateDirtyIndicators();
+            UpdateUpstreamActionButtons();
+        }
+    }
+
+    private void OnUpstreamEditorSelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        OnUpstreamEditorChanged(sender, new RoutedEventArgs());
 
     /// <summary>上游列表中“启用”复选框单击即生效并保存。</summary>
     private void OnUpstreamEnabledClicked(object sender, RoutedEventArgs e)
     {
         if (sender is System.Windows.Controls.CheckBox box && box.DataContext is UpstreamConfig upstream)
         {
+            var previous = upstream.Enabled;
             upstream.Enabled = box.IsChecked == true;
             ReloadActionProxyComboBox();
-            _store.Save(_config);
+            if (!TrySaveConfig())
+            {
+                upstream.Enabled = previous;
+                box.IsChecked = previous;
+                ReloadActionProxyComboBox();
+            }
+        }
+    }
+
+    private async void OnTestUpstream(object sender, RoutedEventArgs e)
+    {
+        var upstream = ReadUpstreamFromEditor();
+        if (upstream is null)
+        {
+            return;
+        }
+
+        AppendLog("正在测试上游连接...");
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            var route = new RouteResult("proxy", upstream, "上游测试");
+            await using var stream = await UpstreamClient.ConnectViaAsync(route, "example.com", 443, timeout.Token);
+            AppendLog("上游连接测试成功（已完成代理握手）");
+            System.Windows.MessageBox.Show(this, "上游代理连接成功，代理握手已完成。", "连接测试",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (OperationCanceledException) when (!_exiting)
+        {
+            AppendLog("上游连接测试超时");
+            System.Windows.MessageBox.Show(this, "连接测试超时（15 秒）。", "连接测试",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (Exception ex) when (!_exiting)
+        {
+            AppendLog($"上游连接测试失败：{ex.Message}");
+            System.Windows.MessageBox.Show(this, $"上游连接测试失败：{ex.Message}", "连接测试",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -478,7 +703,43 @@ public partial class MainWindow : Window
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = upstream;
-        _store.Save(_config);
+        if (TrySaveConfig())
+        {
+            _editingUpstream = upstream;
+            _upstreamEditorDirty = false;
+            UpdateDirtyIndicators();
+        }
+        else
+        {
+            _config.Proxies.Remove(upstream);
+            ReloadUpstreamList();
+            ReloadActionProxyComboBox();
+            _editingUpstream = null;
+            UpdateUpstreamActionButtons();
+        }
+    }
+
+    private void OnNewUpstream(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmPendingUpstreamEdit())
+        {
+            return;
+        }
+
+        _loadingEditor = true;
+        UpstreamsGrid.SelectedItem = null;
+        UpNameBox.Text = "";
+        SelectComboByTag(UpTypeBox, "http");
+        UpHostBox.Text = "127.0.0.1";
+        UpPortBox.Text = "7890";
+        UpUserBox.Text = "";
+        UpPassBox.Password = "";
+        UpEnabledBox.IsChecked = true;
+        _editingUpstream = null;
+        _upstreamEditorDirty = false;
+        _loadingEditor = false;
+        UpdateDirtyIndicators();
+        UpdateUpstreamActionButtons();
     }
 
     private void OnSaveUpstream(object sender, RoutedEventArgs e)
@@ -501,6 +762,16 @@ public partial class MainWindow : Window
             return;
         }
         var previousName = selectedUpstream.Name;
+        var upstreamBackup = new UpstreamConfig
+        {
+            Name = selectedUpstream.Name,
+            Type = selectedUpstream.Type,
+            Host = selectedUpstream.Host,
+            Port = selectedUpstream.Port,
+            Username = selectedUpstream.Username,
+            Password = selectedUpstream.Password,
+            Enabled = selectedUpstream.Enabled
+        };
         selectedUpstream.Name = updatedUpstream.Name;
         selectedUpstream.Type = updatedUpstream.Type;
         selectedUpstream.Host = updatedUpstream.Host;
@@ -524,7 +795,25 @@ public partial class MainWindow : Window
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
         UpstreamsGrid.SelectedItem = selectedUpstream;
-        _store.Save(_config);
+        if (TrySaveConfig())
+        {
+            _editingUpstream = selectedUpstream;
+            _upstreamEditorDirty = false;
+            UpdateDirtyIndicators();
+        }
+        else
+        {
+            selectedUpstream.Name = upstreamBackup.Name;
+            selectedUpstream.Type = upstreamBackup.Type;
+            selectedUpstream.Host = upstreamBackup.Host;
+            selectedUpstream.Port = upstreamBackup.Port;
+            selectedUpstream.Username = upstreamBackup.Username;
+            selectedUpstream.Password = upstreamBackup.Password;
+            selectedUpstream.Enabled = upstreamBackup.Enabled;
+            ReloadUpstreamList();
+            ReloadActionProxyComboBox();
+            UpstreamsGrid.SelectedItem = selectedUpstream;
+        }
     }
 
     private void OnDeleteUpstream(object sender, RoutedEventArgs e)
@@ -533,10 +822,27 @@ public partial class MainWindow : Window
         {
             return;
         }
+        var references = _config.Rules
+            .Where(rule => string.Equals(rule.Proxy, upstream.Name, StringComparison.OrdinalIgnoreCase))
+            .Select(rule => rule.Name)
+            .ToList();
+        var referenceText = references.Count == 0
+            ? "没有规则引用此上游。"
+            : $"以下规则仍引用它，删除后这些规则将按‘无可用代理’阻止连接：{Environment.NewLine}" +
+              string.Join(Environment.NewLine, references.Select(name => "· " + name));
+        var result = System.Windows.MessageBox.Show(this, $"确定删除上游“{upstream.Name}”吗？{Environment.NewLine}{referenceText}",
+            "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
         _config.Proxies.Remove(upstream);
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
-        _store.Save(_config);
+        TrySaveConfig();
+        _editingUpstream = null;
+        _upstreamEditorDirty = false;
+        UpdateDirtyIndicators();
     }
 
     private UpstreamConfig? ReadUpstreamFromEditor()
@@ -544,7 +850,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(UpNameBox.Text) || string.IsNullOrWhiteSpace(UpHostBox.Text) ||
             !int.TryParse(UpPortBox.Text, out var port))
         {
-            System.Windows.MessageBox.Show(this, "请填写名称、主机与有效端口", "提示",
+            System.Windows.MessageBox.Show(this, "请填写名称、主机与 1-65535 范围内的有效端口", "提示",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
@@ -555,9 +861,103 @@ public partial class MainWindow : Window
             Host = UpHostBox.Text.Trim(),
             Port = port,
             Username = UpUserBox.Text,
-            Password = UpPassBox.Text,
+            Password = UpPassBox.Password,
             Enabled = UpEnabledBox.IsChecked == true
         };
+    }
+
+    private bool ConfirmPendingRuleEdit()
+    {
+        if (!_ruleEditorDirty)
+        {
+            return true;
+        }
+
+        var result = System.Windows.MessageBox.Show(this, "当前规则有未保存修改，要保存吗？", "未保存修改",
+            MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Cancel)
+        {
+            return false;
+        }
+        if (result == MessageBoxResult.Yes)
+        {
+            OnSaveRule(this, new RoutedEventArgs());
+            return !_ruleEditorDirty;
+        }
+
+        if (_editingRule is not null)
+        {
+            _loadingEditor = true;
+            RuleNameBox.Text = _editingRule.Name;
+            SelectComboByTag(RuleTypeBox, _editingRule.MatchType);
+            RuleValueBox.Text = _editingRule.MatchValue;
+            SelectActionProxyComboBox(_editingRule.Action, _editingRule.Proxy);
+            RuleNoteBox.Text = _editingRule.Note;
+            RuleEnabledBox.IsChecked = _editingRule.Enabled;
+            _loadingEditor = false;
+        }
+        _ruleEditorDirty = false;
+        UpdateDirtyIndicators();
+        return true;
+    }
+
+    private bool ConfirmPendingUpstreamEdit()
+    {
+        if (!_upstreamEditorDirty)
+        {
+            return true;
+        }
+
+        var result = System.Windows.MessageBox.Show(this, "当前上游代理有未保存修改，要保存吗？", "未保存修改",
+            MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Cancel)
+        {
+            return false;
+        }
+        if (result == MessageBoxResult.Yes)
+        {
+            OnSaveUpstream(this, new RoutedEventArgs());
+            return !_upstreamEditorDirty;
+        }
+
+        if (_editingUpstream is not null)
+        {
+            _loadingEditor = true;
+            UpNameBox.Text = _editingUpstream.Name;
+            SelectComboByTag(UpTypeBox, _editingUpstream.Type);
+            UpHostBox.Text = _editingUpstream.Host;
+            UpPortBox.Text = _editingUpstream.Port.ToString();
+            UpUserBox.Text = _editingUpstream.Username;
+            UpPassBox.Password = _editingUpstream.Password;
+            UpEnabledBox.IsChecked = _editingUpstream.Enabled;
+            _loadingEditor = false;
+        }
+        _upstreamEditorDirty = false;
+        UpdateDirtyIndicators();
+        return true;
+    }
+
+    private void UpdateDirtyIndicators()
+    {
+        var dirty = _ruleEditorDirty || _upstreamEditorDirty || _settingsDirty;
+        if (SettingsDirtyText is not null)
+        {
+            SettingsDirtyText.Visibility = _settingsDirty ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (SaveSettingsButton is not null)
+        {
+            SaveSettingsButton.Content = _settingsDirty ? "保存设置 *" : "保存设置";
+        }
+        Title = dirty ? "RuleProxy — 有未保存修改" : "RuleProxy — 分应用 / 分端口代理";
+    }
+
+    private void OnSettingsChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loadingSettings && !_initializingUi)
+        {
+            _settingsDirty = true;
+            UpdateDirtyIndicators();
+        }
     }
 
     // ------------------------------------------------------------- 界面刷新
@@ -568,15 +968,12 @@ public partial class MainWindow : Window
         if (MainTabs.SelectedIndex == 0)
         {
             var snapshot = _engine.Snapshot();
+            _allConnections.Clear();
+            _allConnections.AddRange(snapshot.Active);
+            _allConnections.AddRange(snapshot.History);
             _connections.Clear();
-            foreach (var session in snapshot.Active)
-            {
+            foreach (var session in FilterConnections(_allConnections))
                 _connections.Add(session);
-            }
-            foreach (var session in snapshot.History)
-            {
-                _connections.Add(session);
-            }
             StatsText.Text = $"活动连接 {snapshot.Active.Count} · 累计上行 {FormatBytes(snapshot.TotalUp)} · 累计下行 {FormatBytes(snapshot.TotalDown)}";
         }
 
@@ -584,6 +981,105 @@ public partial class MainWindow : Window
         {
             AppendLog(line);
         }
+    }
+
+    private IEnumerable<ConnectionSession> FilterConnections(IEnumerable<ConnectionSession> sessions)
+    {
+        var search = ConnectionSearchBox.Text.Trim();
+        var status = (ConnectionStatusFilter.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        return sessions.Where(session =>
+            (string.IsNullOrEmpty(search) ||
+             session.ProcessName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+             session.Destination.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+             session.RuleName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+             session.Status.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(status) ||
+             status == "active" && !session.Done ||
+             status != "active" && session.Status.Contains(status, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void OnConnectionFilterChanged(object sender, RoutedEventArgs e)
+    {
+        _connections.Clear();
+        foreach (var session in FilterConnections(_allConnections))
+            _connections.Add(session);
+    }
+
+    private void OnClearConnectionHistory(object sender, RoutedEventArgs e)
+    {
+        _engine.ClearHistory();
+        _allConnections.RemoveAll(session => session.Done);
+        _connections.Clear();
+        foreach (var session in FilterConnections(_allConnections))
+            _connections.Add(session);
+    }
+
+    private void OnExportConnections(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "导出连接记录",
+            Filter = "CSV 文件 (*.csv)|*.csv",
+            FileName = $"ruleproxy-connections-{DateTime.Now:yyyyMMdd-HHmmss}.csv",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            using var writer = new StreamWriter(dialog.FileName, false, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            writer.WriteLine("时间,PID,进程,目标,规则,动作,状态,上行字节,下行字节");
+            foreach (var session in FilterConnections(_allConnections))
+            {
+                writer.WriteLine(string.Join(",", new[]
+                {
+                    CsvEscape(session.Timestamp),
+                    CsvEscape(session.Pid?.ToString() ?? ""),
+                    CsvEscape(session.ProcessName),
+                    CsvEscape(session.Destination),
+                    CsvEscape(session.RuleName),
+                    CsvEscape(session.ActionText),
+                    CsvEscape(session.Status),
+                    session.UpBytes.ToString(),
+                    session.DownBytes.ToString()
+                }));
+            }
+            AppendLog($"已导出连接记录：{dialog.FileName}");
+            System.Windows.MessageBox.Show(this, "连接记录已导出。", "导出成功",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Windows.MessageBox.Show(this, $"导出失败：{ex.Message}", "导出失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    public static string CsvEscape(string value) =>
+        value.Contains(',') || value.Contains('"') || value.Contains('\r') || value.Contains('\n')
+            ? '"' + value.Replace("\"", "\"\"") + '"'
+            : value;
+
+    private void OnConnectionDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (ConnectionsGrid.SelectedItem is not ConnectionSession session)
+            return;
+
+        var details = $"时间：{session.Timestamp}{Environment.NewLine}" +
+                      $"PID：{session.Pid?.ToString() ?? "未知"}{Environment.NewLine}" +
+                      $"进程：{session.ProcessName}{Environment.NewLine}" +
+                      $"源端口：{session.SrcPort}{Environment.NewLine}" +
+                      $"目标：{session.Destination}{Environment.NewLine}" +
+                      $"规则：{session.RuleName}{Environment.NewLine}" +
+                      $"动作：{session.ActionText}{Environment.NewLine}" +
+                      $"状态：{session.Status}{Environment.NewLine}" +
+                      $"上行：{FormatBytes(session.UpBytes)}{Environment.NewLine}" +
+                      $"下行：{FormatBytes(session.DownBytes)}";
+        System.Windows.MessageBox.Show(this, details, "连接详情", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void OnLogsChanged() => Dispatcher.Invoke(() =>
@@ -610,9 +1106,27 @@ public partial class MainWindow : Window
 
     private void SaveConfig()
     {
-        _store.Save(_config);
-        System.Windows.MessageBox.Show(this, "配置已保存到 " + _store.ConfigPath, "已保存",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+        if (TrySaveConfig())
+        {
+            System.Windows.MessageBox.Show(this, "配置已保存到 " + _store.ConfigPath, "已保存",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private bool TrySaveConfig()
+    {
+        try
+        {
+            _store.Save(_config);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or CryptographicException or JsonException)
+        {
+            AppendLog($"配置保存失败：{e.Message}");
+            System.Windows.MessageBox.Show(this, $"配置保存失败：{e.Message}", "保存失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
     }
 
     private static string FormatBytes(long bytes)
@@ -671,6 +1185,8 @@ public partial class MainWindow : Window
             }
         };
         menu.Items.Add(_trayProxyItem);
+        _trayStatusItem = new System.Windows.Forms.ToolStripMenuItem("状态：未启动") { Enabled = false };
+        menu.Items.Add(_trayStatusItem);
         _traySysItem = new System.Windows.Forms.ToolStripMenuItem("设置系统代理");
         _traySysItem.Click += (_, _) => ToggleSystemProxy();
         menu.Items.Add(_traySysItem);
@@ -711,24 +1227,45 @@ public partial class MainWindow : Window
 
     private void OnExit()
     {
-        // 保存上次状态
-        _config.LastProxyRunning = _engine.Running;
-        _config.LastSysProxyEnabled = _sysProxyActive;
-        _store.Save(_config);
-
+        if (_exiting)
+        {
+            return;
+        }
+        if (!ConfirmPendingChanges())
+        {
+            return;
+        }
         _exiting = true;
-        CleanupSystemProxy();
-        _engine.Stop();
-        _tray?.Dispose();
-        _tray = null;
-        System.Windows.Application.Current.Shutdown();
+        _lifetimeCts.Cancel();
+        _timer.Stop();
+        try
+        {
+            SaveLastState();
+        }
+        finally
+        {
+            try { CleanupSystemProxy(); } catch { }
+            _engine.StateChanged -= OnEngineStateChanged;
+            _engine.LogsChanged -= OnLogsChanged;
+            try { _engine.Stop(); } catch { }
+            _tray?.Dispose();
+            _tray = null;
+            _lifetimeCts.Dispose();
+            System.Windows.Application.Current.Shutdown();
+        }
     }
 
-    private async void OnCheckUpdates(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(automatic: false);
+    private async void OnCheckUpdates(object sender, RoutedEventArgs e) =>
+        await CheckForUpdatesAsync(automatic: false, _lifetimeCts.Token);
 
-    private async Task CheckForUpdatesAsync(bool automatic)
+    private async Task CheckForUpdatesAsync(bool automatic, CancellationToken cancellationToken)
     {
         if (automatic && !_config.CheckUpdates)
+        {
+            return;
+        }
+
+        if (_exiting)
         {
             return;
         }
@@ -737,7 +1274,11 @@ public partial class MainWindow : Window
         try
         {
             var updateService = new UpdateService();
-            var update = await updateService.CheckForUpdateAsync();
+            var update = await updateService.CheckForUpdateAsync(cancellationToken);
+            if (_exiting)
+            {
+                return;
+            }
             if (update is null)
             {
                 if (!automatic)
@@ -760,7 +1301,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var downloadedExe = await updateService.DownloadAsync(update);
+            var downloadedExe = await updateService.DownloadAsync(update, cancellationToken);
+            if (_exiting)
+            {
+                return;
+            }
             if (downloadedExe is null)
             {
                 System.Windows.MessageBox.Show(this, "更新下载失败或文件验证失败。", "RuleProxy 更新",
@@ -769,9 +1314,15 @@ public partial class MainWindow : Window
             }
             StartUpdaterAndShutdown(downloadedExe);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
-            CheckUpdatesButton.IsEnabled = true;
+            if (!_exiting)
+            {
+                CheckUpdatesButton.IsEnabled = true;
+            }
         }
     }
 
@@ -810,6 +1361,13 @@ public partial class MainWindow : Window
 
     private void ExitForUpdate() => OnExit();
 
+    private void SaveLastState()
+    {
+        _config.LastProxyRunning = _engine.Running;
+        _config.LastSysProxyEnabled = _sysProxyActive;
+        TrySaveConfig();
+    }
+
     /// <summary>退出前清理系统代理：仅当系统代理正指向本程序监听端口时才清除，
     /// 避免误删用户/其他代理软件（如 Clash 的 7890）设置的代理导致断网。</summary>
     private void CleanupSystemProxy()
@@ -822,29 +1380,62 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        // 关闭窗口时保存状态（可能用户直接关窗口而不是点退出）
-        _config.LastProxyRunning = _engine.Running;
-        _config.LastSysProxyEnabled = _sysProxyActive;
-        _store.Save(_config);
-
         if (!_exiting)
         {
+            if (!ConfirmPendingChanges())
+            {
+                e.Cancel = true;
+                return;
+            }
+            SaveLastState();
             e.Cancel = true;
             HideToTray();
         }
         base.OnClosing(e);
     }
 
+    private bool ConfirmPendingChanges()
+    {
+        if (!ConfirmPendingRuleEdit() || !ConfirmPendingUpstreamEdit())
+        {
+            return false;
+        }
+        if (!_settingsDirty)
+        {
+            return true;
+        }
+
+        var result = System.Windows.MessageBox.Show(this, "设置页有未保存修改，要保存吗？", "未保存修改",
+            MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Cancel)
+        {
+            return false;
+        }
+        if (result == MessageBoxResult.Yes)
+        {
+            OnSaveSettings(this, new RoutedEventArgs());
+            return !_settingsDirty;
+        }
+
+        _settingsDirty = false;
+        UpdateDirtyIndicators();
+        return true;
+    }
+
     // ------------------------------------------------------------- 设置页
 
     private void LoadSettings()
     {
+        _loadingSettings = true;
         StartMinimizedCheckBox.IsChecked = _config.StartMinimized;
         AutoStartProxyCheckBox.IsChecked = _config.AutoStartProxy;
         RememberLastStateCheckBox.IsChecked = _config.RememberLastState;
         CheckUpdatesCheckBox.IsChecked = _config.CheckUpdates;
         CurrentVersionText.Text = $"当前版本：v{UpdateService.CurrentVersion.ToString(3)}";
         AutostartCheckBox.IsChecked = Autostart.IsEnabled;
+        _settingsDirty = false;
+        _loadingSettings = false;
+        UpdateDirtyIndicators();
     }
 
     private void UpdateAutostartPathText()
@@ -875,7 +1466,12 @@ public partial class MainWindow : Window
             _config.LastProxyRunning = false;
             _config.LastSysProxyEnabled = false;
         }
-        _store.Save(_config);
+        if (!TrySaveConfig())
+        {
+            return;
+        }
+        _settingsDirty = false;
+        UpdateDirtyIndicators();
         if (Autostart.IsEnabled)
         {
             Autostart.SetEnabled(true, _config.StartMinimized);
@@ -886,8 +1482,6 @@ public partial class MainWindow : Window
 
     private void OnSaveConfigFile(object sender, RoutedEventArgs e)
     {
-        _store.Save(_config);
-        System.Windows.MessageBox.Show(this, "配置已保存到 " + _store.ConfigPath, "已保存",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+        SaveConfig();
     }
 }

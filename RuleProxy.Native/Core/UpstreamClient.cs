@@ -22,14 +22,17 @@ public static class UpstreamClient
             Exception? last = null;
             for (var attempt = 0; attempt < 3; attempt++)
             {
+                using var attemptTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                attemptTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+                var attemptToken = attemptTimeout.Token;
                 try
                 {
                     var socket = upstream.Type == "socks5"
-                        ? await ConnectSocks5Async(upstream, host, port, ct)
-                        : await ConnectHttpProxyAsync(upstream, host, port, ct);
+                        ? await ConnectSocks5Async(upstream, host, port, attemptToken)
+                        : await ConnectHttpProxyAsync(upstream, host, port, attemptToken);
                     return new NetworkStream(socket, ownsSocket: true);
                 }
-                catch (Exception e) when (e is SocketException or IOException or InvalidOperationException)
+                catch (Exception e) when (e is SocketException or IOException or InvalidOperationException or OperationCanceledException)
                 {
                     last = e;
                     if (attempt < 2)
@@ -144,77 +147,100 @@ public static class UpstreamClient
     private static async Task<Socket> ConnectHttpProxyAsync(UpstreamConfig proxy, string host, int port, CancellationToken ct)
     {
         var socket = await ConnectSocketAsync(proxy.Host, proxy.Port, ct);
-        var stream = new NetworkStream(socket, ownsSocket: false);
-        var target = $"{host}:{port}";
-        var request = new StringBuilder($"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
-        if (!string.IsNullOrEmpty(proxy.Username))
+        var success = false;
+        try
         {
-            var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{proxy.Username}:{proxy.Password}"));
-            request.Append($"Proxy-Authorization: Basic {token}\r\n");
+            using var stream = new NetworkStream(socket, ownsSocket: false);
+            var target = $"{host}:{port}";
+            var request = new StringBuilder($"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
+            if (!string.IsNullOrEmpty(proxy.Username))
+            {
+                var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{proxy.Username}:{proxy.Password}"));
+                request.Append($"Proxy-Authorization: Basic {token}\r\n");
+            }
+            request.Append("\r\n");
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(request.ToString()), ct);
+            var response = await ReadUntilAsync(stream, "\r\n\r\n", ct);
+            var statusLine = response.Split("\r\n", 2, StringSplitOptions.None)[0].Split(' ');
+            if (statusLine.Length < 2 || !int.TryParse(statusLine[1], out var code) || code != 200)
+            {
+                throw new InvalidOperationException($"上游代理 CONNECT 失败: {statusLine[0]}");
+            }
+            success = true;
+            return socket;
         }
-        request.Append("\r\n");
-        await stream.WriteAsync(Encoding.ASCII.GetBytes(request.ToString()), ct);
-        var response = await ReadUntilAsync(stream, "\r\n\r\n", ct);
-        var statusLine = response.Split("\r\n", 2, StringSplitOptions.None)[0].Split(' ');
-        if (statusLine.Length < 2 || !int.TryParse(statusLine[1], out var code) || code != 200)
+        finally
         {
-            throw new InvalidOperationException($"上游代理 CONNECT 失败: {statusLine[0]}");
+            if (!success)
+            {
+                socket.Dispose();
+            }
         }
-        return socket;
     }
 
     private static async Task<Socket> ConnectSocks5Async(UpstreamConfig proxy, string host, int port, CancellationToken ct)
     {
         var socket = await ConnectSocketAsync(proxy.Host, proxy.Port, ct);
-        var stream = new NetworkStream(socket, ownsSocket: false);
+        var success = false;
+        try
+        {
+            using var stream = new NetworkStream(socket, ownsSocket: false);
+            if (!string.IsNullOrEmpty(proxy.Username))
+            {
+                await stream.WriteAsync(new byte[] { 0x05, 0x02, 0x00, 0x02 }, ct);
+                var ver = await RecvExactAsync(stream, 2, ct);
+                if (ver[0] != 0x05 || ver[1] != 0x02)
+                {
+                    throw new InvalidOperationException("SOCKS5 上游不支持用户名密码认证");
+                }
+                var user = Encoding.UTF8.GetBytes(proxy.Username);
+                var pass = Encoding.UTF8.GetBytes(proxy.Password);
+                var body = new List<byte> { 0x01, (byte)user.Length };
+                body.AddRange(user);
+                body.Add((byte)pass.Length);
+                body.AddRange(pass);
+                await stream.WriteAsync(body.ToArray(), ct);
+                var status = await RecvExactAsync(stream, 2, ct);
+                if (status[1] != 0x00)
+                {
+                    throw new InvalidOperationException("SOCKS5 认证失败");
+                }
+            }
+            else
+            {
+                await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, ct);
+                var ver = await RecvExactAsync(stream, 2, ct);
+                if (ver[0] != 0x05 || ver[1] != 0x00)
+                {
+                    throw new InvalidOperationException("SOCKS5 上游要求认证或握手失败");
+                }
+            }
 
-        if (!string.IsNullOrEmpty(proxy.Username))
-        {
-            await stream.WriteAsync(new byte[] { 0x05, 0x02, 0x00, 0x02 }, ct);
-            var ver = await RecvExactAsync(stream, 2, ct);
-            if (ver[0] != 0x05 || ver[1] != 0x02)
+            await stream.WriteAsync(BuildSocksRequest(host, port), ct);
+            var head = await RecvExactAsync(stream, 4, ct);
+            if (head[0] != 0x05 || head[1] != 0x00)
             {
-                throw new InvalidOperationException("SOCKS5 上游不支持用户名密码认证");
+                throw new InvalidOperationException($"SOCKS5 上游连接失败: REP={head[1]}");
             }
-            var user = Encoding.UTF8.GetBytes(proxy.Username);
-            var pass = Encoding.UTF8.GetBytes(proxy.Password);
-            var body = new List<byte> { 0x01, (byte)user.Length };
-            body.AddRange(user);
-            body.Add((byte)pass.Length);
-            body.AddRange(pass);
-            await stream.WriteAsync(body.ToArray(), ct);
-            var status = await RecvExactAsync(stream, 2, ct);
-            if (status[1] != 0x00)
+            var atyp = head[3];
+            if (atyp == 0x01) await RecvExactAsync(stream, 4, ct);
+            else if (atyp == 0x04) await RecvExactAsync(stream, 16, ct);
+            else if (atyp == 0x03)
             {
-                throw new InvalidOperationException("SOCKS5 认证失败");
+                var len = await RecvExactAsync(stream, 1, ct);
+                await RecvExactAsync(stream, len[0], ct);
             }
+            await RecvExactAsync(stream, 2, ct);
+            success = true;
+            return socket;
         }
-        else
+        finally
         {
-            await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, ct);
-            var ver = await RecvExactAsync(stream, 2, ct);
-            if (ver[0] != 0x05 || ver[1] != 0x00)
+            if (!success)
             {
-                throw new InvalidOperationException("SOCKS5 上游要求认证或握手失败");
+                socket.Dispose();
             }
         }
-
-        await stream.WriteAsync(BuildSocksRequest(host, port), ct);
-        var head = await RecvExactAsync(stream, 4, ct);
-        if (head[0] != 0x05 || head[1] != 0x00)
-        {
-            throw new InvalidOperationException($"SOCKS5 上游连接失败: REP={head[1]}");
-        }
-        var atyp = head[3];
-        if (atyp == 0x01) await RecvExactAsync(stream, 4, ct);
-        else if (atyp == 0x04) await RecvExactAsync(stream, 16, ct);
-        else if (atyp == 0x03)
-        {
-            var len = await RecvExactAsync(stream, 1, ct);
-            await RecvExactAsync(stream, len[0], ct);
-        }
-        await RecvExactAsync(stream, 2, ct); // 端口
-        return socket;
     }
 
     private static byte[] BuildSocksRequest(string host, int port)

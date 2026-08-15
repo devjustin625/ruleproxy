@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Net;
 using System.Text.Json.Serialization;
 
 namespace RuleProxy.Native.Core;
@@ -144,6 +145,24 @@ public sealed class AppConfig
 
     [JsonPropertyName("proxies")]
     public List<UpstreamConfig> Proxies { get; set; } = [];
+
+    public bool IsValidForListening(out string error)
+    {
+        if (!IPAddress.TryParse(ListenHost, out var address) || !IPAddress.IsLoopback(address))
+        {
+            error = "监听地址必须是回环地址（127.0.0.1 或 ::1），当前版本暂不支持远程入站连接。";
+            return false;
+        }
+
+        if (HttpPort is < 1 or > 65535 || Socks5Port is < 1 or > 65535 || HttpPort == Socks5Port)
+        {
+            error = "HTTP 和 SOCKS5 端口必须在 1-65535 范围内且不能相同。";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
 }
 
 public sealed record RouteResult(string Action, UpstreamConfig? Upstream, string RuleName);

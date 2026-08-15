@@ -12,6 +12,7 @@ public partial class App : System.Windows.Application
     private const string MutexName = @"Local\RuleProxy_SingleInstance";
     private const string WakeEventName = @"Local\RuleProxy_WakeExisting";
     private Mutex? _mutex;
+    private bool _ownsMutex;
     private EventWaitHandle? _wakeEvent;
     private DispatcherTimer? _wakeTimer;
 
@@ -32,6 +33,7 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        _ownsMutex = true;
 
         base.OnStartup(e);
     _wakeEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WakeEventName);
@@ -65,7 +67,11 @@ public partial class App : System.Windows.Application
     {
         _wakeTimer?.Stop();
         _wakeEvent?.Dispose();
-        _mutex?.ReleaseMutex();
+        if (_ownsMutex)
+        {
+            try { _mutex?.ReleaseMutex(); } catch (ApplicationException) { }
+            _ownsMutex = false;
+        }
         _mutex?.Dispose();
         base.OnExit(e);
     }

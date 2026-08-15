@@ -8,9 +8,11 @@
         Foreground="#20242B">
     <Window.Resources>
         <SolidColorBrush x:Key="AccentBrush" Color="#2563EB"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#DC2626"/>
         <SolidColorBrush x:Key="TextBrush" Color="#20242B"/>
         <SolidColorBrush x:Key="MutedTextBrush" Color="#68707D"/>
         <SolidColorBrush x:Key="BorderBrush" Color="#E1E4E8"/>
+        <SolidColorBrush x:Key="ControlBorderBrush" Color="#D7DBE0"/>
         <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="SubtleBrush" Color="#F7F8FA"/>
 
@@ -34,6 +36,10 @@
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bg" Property="BorderBrush" Value="#111827"/>
+                                <Setter TargetName="Bg" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bg" Property="Opacity" Value="0.85"/>
                             </Trigger>
@@ -53,6 +59,11 @@
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
         </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource DangerBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
+        </Style>
 
         <!-- 输入框：34px 高度，13px 文字，居中 -->
         <Style TargetType="TextBox">
@@ -61,7 +72,17 @@
             <Setter Property="Padding" Value="10,0"/>
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="BorderBrush" Value="#D7DBE0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
@@ -71,7 +92,7 @@
             <Setter Property="Padding" Value="9,0"/>
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-            <Setter Property="BorderBrush" Value="#D7DBE0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
@@ -169,7 +190,7 @@
         <Style x:Key="CellText" TargetType="TextBlock">
             <Setter Property="Padding" Value="18,0"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="TextTrimming" Value="None"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
     </Window.Resources>
 
@@ -210,22 +231,45 @@
         <!-- 标签页 -->
         <TabControl Grid.Row="1" x:Name="MainTabs">
             <TabItem Header="连接">
-                <DataGrid x:Name="ConnectionsGrid" AutoGenerateColumns="False" IsReadOnly="True"
-                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                          RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
-                          EnableRowVirtualization="True">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="时间" Binding="{Binding Timestamp}" Width="72" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="65" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="目标" Binding="{Binding Destination}" Width="220" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="规则" Binding="{Binding RuleName}" Width="170" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="90" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="85" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="上行" Binding="{Binding UpBytes}" Width="95" ElementStyle="{StaticResource CellText}"/>
-                        <DataGridTextColumn Header="下行" Binding="{Binding DownBytes}" Width="95" ElementStyle="{StaticResource CellText}"/>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Content="导出 CSV" Click="OnExportConnections" Margin="8,0,0,0"/>
+                            <Button Content="清空历史" Click="OnClearConnectionHistory" Margin="8,0,0,0"/>
+                        </StackPanel>
+                        <TextBox x:Name="ConnectionSearchBox" Width="260" Height="34"
+                                 ToolTip="搜索进程、目标、规则或状态"
+                                 TextChanged="OnConnectionFilterChanged"/>
+                        <ComboBox x:Name="ConnectionStatusFilter" Width="130" Margin="8,0,0,0"
+                                  SelectionChanged="OnConnectionFilterChanged">
+                            <ComboBoxItem Content="全部状态" Tag="" IsSelected="True"/>
+                            <ComboBoxItem Content="活动连接" Tag="active"/>
+                            <ComboBoxItem Content="已连接" Tag="已连接"/>
+                            <ComboBoxItem Content="已断开" Tag="已断开"/>
+                            <ComboBoxItem Content="已阻止" Tag="阻止"/>
+                        </ComboBox>
+                    </DockPanel>
+                    <DataGrid x:Name="ConnectionsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              RowHeaderWidth="0" CanUserAddRows="False" SelectionMode="Single"
+                              EnableRowVirtualization="True" MouseDoubleClick="OnConnectionDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="时间" Binding="{Binding Timestamp}" Width="72" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="65" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="进程" Binding="{Binding ProcessName}" Width="150" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="目标" Binding="{Binding Destination}" Width="220" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="规则" Binding="{Binding RuleName}" Width="170" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="动作" Binding="{Binding ActionText}" Width="90" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="85" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="上行" Binding="{Binding UpBytes}" Width="95" ElementStyle="{StaticResource CellText}"/>
+                            <DataGridTextColumn Header="下行" Binding="{Binding DownBytes}" Width="95" ElementStyle="{StaticResource CellText}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
             </TabItem>
 
             <TabItem Header="规则">
@@ -247,9 +291,9 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}"
-                                                  Focusable="False"
                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
                                                   Click="OnRuleEnabledClicked"
+                                                  AutomationProperties.Name="启用规则"
                                                   ToolTip="单击立即启用/停用并保存"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
@@ -274,7 +318,7 @@
 
                             <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,0">
                                 <TextBlock Text="名称" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                                <TextBox x:Name="RuleNameBox"/>
+                                <TextBox x:Name="RuleNameBox" TextChanged="OnRuleEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,8,0">
                                 <TextBlock Text="匹配类型" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
@@ -288,58 +332,44 @@
                             <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,8,0">
                                 <TextBlock Text="代理方式" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
                                 <ComboBox x:Name="RuleActionProxyBox"
+                                          SelectionChanged="OnRuleEditorSelectionChanged"
                                           ToolTip="选择直连、阻止，或一个上游代理"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,8,0">
                                 <TextBlock Text="备注" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                                <TextBox x:Name="RuleNoteBox"/>
+                                <TextBox x:Name="RuleNoteBox" TextChanged="OnRuleEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="4">
                                 <TextBlock Text="状态" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
                                 <Border Height="34" Background="White" BorderBrush="#D7DBE0" BorderThickness="1"
                                         CornerRadius="5" Padding="10,0">
-                                    <CheckBox x:Name="RuleEnabledBox" Content="启用" IsChecked="True"/>
+                                    <CheckBox x:Name="RuleEnabledBox" Content="启用" IsChecked="True"
+                                              Checked="OnRuleEditorChanged" Unchecked="OnRuleEditorChanged"/>
                                 </Border>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" Margin="0,8,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Grid.ColumnSpan="3">
-                                        <TextBlock Text="匹配值" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox x:Name="RuleValueBox" Grid.Column="0"/>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                                <Button x:Name="BrowseFileButton" Content="文件" MinWidth="0"
-                                                        Padding="8,0" Click="OnBrowseFile" Margin="6,0,0,0"/>
-                                                <Button x:Name="BrowseFolderButton" Content="文件夹" MinWidth="0"
-                                                        Padding="8,0" Click="OnBrowseFolder" Margin="6,0,0,0"/>
-                                                <Button Content="上移" MinWidth="0" Padding="8,0"
-                                                        Click="OnMoveRuleUp" Margin="10,0,0,0"/>
-                                                <Button Content="下移" MinWidth="0" Padding="8,0"
-                                                        Click="OnMoveRuleDown" Margin="6,0,0,0"/>
-                                                <Button Content="删除" MinWidth="0" Padding="8,0"
-                                                        Click="OnDeleteRule" Margin="6,0,0,0"/>
-                                                 <Button Content="保存修改" MinWidth="0" Padding="10,0"
-                                                     Click="OnSaveRule" Margin="6,0,0,0"/>
-                                                <Button x:Name="AddRuleButton" Content="添加规则" MinWidth="0" Padding="10,0"
-                                                        Style="{StaticResource PrimaryButton}" Click="OnAddRule"
-                                                        Margin="6,0,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" Margin="0,8,0,0">
+                                <TextBlock Text="匹配值" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                                <TextBox x:Name="RuleValueBox" TextChanged="OnRuleEditorChanged"/>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button x:Name="NewRuleButton" Content="新建规则" MinWidth="0" Padding="10,0"
+                                        Click="OnNewRule" Margin="0,0,6,0"/>
+                                    <Button x:Name="BrowseFileButton" Content="文件" MinWidth="0"
+                                        Padding="8,0" Click="OnBrowseFile" Margin="0,0,6,0"/>
+                                    <Button x:Name="BrowseFolderButton" Content="文件夹" MinWidth="0"
+                                        Padding="8,0" Click="OnBrowseFolder" Margin="0,0,6,0"/>
+                                    <Button x:Name="MoveRuleUpButton" Content="上移" MinWidth="0" Padding="8,0"
+                                        Click="OnMoveRuleUp" Margin="4,0,6,0"/>
+                                    <Button x:Name="MoveRuleDownButton" Content="下移" MinWidth="0" Padding="8,0"
+                                        Click="OnMoveRuleDown" Margin="0,0,6,0"/>
+                                    <Button x:Name="DeleteRuleButton" Content="删除" Style="{StaticResource DangerButton}" MinWidth="0" Padding="8,0"
+                                        Click="OnDeleteRule" Margin="0,0,6,0"/>
+                                    <Button x:Name="SaveRuleButton" Content="保存修改" MinWidth="0" Padding="10,0"
+                                        Click="OnSaveRule" Margin="0,0,6,0"/>
+                                    <Button x:Name="AddRuleButton" Content="添加规则" MinWidth="0" Padding="10,0"
+                                        Style="{StaticResource PrimaryButton}" Click="OnAddRule"/>
+                                </WrapPanel>
+                                </StackPanel>
                         </Grid>
                     </Border>
                 </Grid>
@@ -365,18 +395,18 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}"
-                                                  Focusable="False"
                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
                                                   Click="OnUpstreamEnabledClicked"
+                                                  AutomationProperties.Name="启用上游代理"
                                                   ToolTip="单击立即启用/停用并保存"/>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
-                    <Border Grid.Row="1" Background="{StaticResource SubtleBrush}"
+                    <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                            CornerRadius="8" Padding="14" Margin="0,12,0,0">
+                            CornerRadius="6" Padding="14" Margin="0,12,0,0">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -384,55 +414,58 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="1.2*"/>
-                                <ColumnDefinition Width="0.9*"/>
-                                <ColumnDefinition Width="1.6*"/>
-                                <ColumnDefinition Width="0.75*"/>
-                                <ColumnDefinition Width="1.25*"/>
-                                <ColumnDefinition Width="1.25*"/>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="1.2*" MinWidth="120"/>
+                                <ColumnDefinition Width="0.9*" MinWidth="90"/>
+                                <ColumnDefinition Width="1.6*" MinWidth="150"/>
+                                <ColumnDefinition Width="0.75*" MinWidth="80"/>
+                                <ColumnDefinition Width="1.25*" MinWidth="110"/>
+                                <ColumnDefinition Width="1.25*" MinWidth="110"/>
+                                <ColumnDefinition Width="Auto" MinWidth="75"/>
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,12,0">
                                 <TextBlock Text="名称" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <TextBox x:Name="UpNameBox"/>
+                                <TextBox x:Name="UpNameBox" TextChanged="OnUpstreamEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,12,0">
                                 <TextBlock Text="类型" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <ComboBox x:Name="UpTypeBox">
+                                <ComboBox x:Name="UpTypeBox" SelectionChanged="OnUpstreamEditorSelectionChanged">
                                     <ComboBoxItem Content="HTTP" Tag="http"/>
                                     <ComboBoxItem Content="SOCKS5" Tag="socks5"/>
                                 </ComboBox>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,12,0">
                                 <TextBlock Text="主机" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <TextBox x:Name="UpHostBox"/>
+                                <TextBox x:Name="UpHostBox" TextChanged="OnUpstreamEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="3" Margin="0,0,12,0">
                                 <TextBlock Text="端口" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <TextBox x:Name="UpPortBox"/>
+                                <TextBox x:Name="UpPortBox" TextChanged="OnUpstreamEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,12,0">
                                 <TextBlock Text="用户名" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <TextBox x:Name="UpUserBox"/>
+                                <TextBox x:Name="UpUserBox" TextChanged="OnUpstreamEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="5" Margin="0,0,12,0">
                                 <TextBlock Text="密码" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
-                                <TextBox x:Name="UpPassBox"/>
+                                        <PasswordBox x:Name="UpPassBox" PasswordChanged="OnUpstreamEditorChanged"/>
                             </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="6">
                                 <TextBlock Text="状态" Style="{StaticResource FieldLabel}" Margin="0,0,0,6"/>
                                 <Border Height="36" Background="White" BorderBrush="#D7DBE0" BorderThickness="1"
                                         CornerRadius="5" Padding="12,0">
-                                    <CheckBox x:Name="UpEnabledBox" Content="启用" IsChecked="True"/>
+                                    <CheckBox x:Name="UpEnabledBox" Content="启用" IsChecked="True"
+                                              Checked="OnUpstreamEditorChanged" Unchecked="OnUpstreamEditorChanged"/>
                                 </Border>
                             </StackPanel>
 
                             <Border Grid.Row="2" Grid.ColumnSpan="7" BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,12,0,0">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="删除" Click="OnDeleteUpstream" Margin="0,0,8,0"/>
-                                     <Button Content="保存修改" Click="OnSaveUpstream" Margin="0,0,8,0"/>
+                                    <Button x:Name="NewUpstreamButton" Content="新建上游" Click="OnNewUpstream" Margin="0,0,8,0"/>
+                                    <Button x:Name="TestUpstreamButton" Content="测试连接" Click="OnTestUpstream" Margin="0,0,8,0"/>
+                                    <Button x:Name="DeleteUpstreamButton" Content="删除" Style="{StaticResource DangerButton}" Click="OnDeleteUpstream" Margin="0,0,8,0"/>
+                                    <Button x:Name="SaveUpstreamButton" Content="保存修改" Click="OnSaveUpstream" Margin="0,0,8,0"/>
                                     <Button x:Name="AddUpButton" Content="添加上游" Style="{StaticResource PrimaryButton}"
                                             Click="OnAddUpstream"/>
                                 </StackPanel>
@@ -464,8 +497,8 @@
 
                     <TextBlock Grid.Row="0" Text="常规设置" Style="{StaticResource SectionTitle}" Margin="2,2,0,14"/>
 
-                    <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1" CornerRadius="8">
+                        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="6">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -485,7 +518,8 @@
                                     <TextBlock Text="程序启动后自动开始本地代理服务" FontSize="12"
                                                Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
                                 </StackPanel>
-                                <CheckBox x:Name="AutoStartProxyCheckBox" Grid.Column="1" VerticalAlignment="Center"/>
+                                <CheckBox x:Name="AutoStartProxyCheckBox" Grid.Column="1" VerticalAlignment="Center"
+                                          Checked="OnSettingsChanged" Unchecked="OnSettingsChanged"/>
                             </Grid>
 
                             <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
@@ -499,7 +533,8 @@
                                         <TextBlock Text="开机自启动时不显示主窗口，直接在系统托盘后台运行" FontSize="12"
                                                    Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
                                     </StackPanel>
-                                    <CheckBox x:Name="StartMinimizedCheckBox" Grid.Column="1" VerticalAlignment="Center"/>
+                                    <CheckBox x:Name="StartMinimizedCheckBox" Grid.Column="1" VerticalAlignment="Center"
+                                              Checked="OnSettingsChanged" Unchecked="OnSettingsChanged"/>
                                 </Grid>
                             </Border>
 
@@ -514,7 +549,8 @@
                                         <TextBlock Text="恢复退出时的代理和系统代理状态；启用后优先于自动开启代理"
                                                    FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
                                     </StackPanel>
-                                    <CheckBox x:Name="RememberLastStateCheckBox" Grid.Column="1" VerticalAlignment="Center"/>
+                                    <CheckBox x:Name="RememberLastStateCheckBox" Grid.Column="1" VerticalAlignment="Center"
+                                              Checked="OnSettingsChanged" Unchecked="OnSettingsChanged"/>
                                 </Grid>
                             </Border>
 
@@ -546,7 +582,8 @@
                                         <TextBlock x:Name="CurrentVersionText" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
                                     </StackPanel>
                                     <Button x:Name="CheckUpdatesButton" Grid.Column="1" Content="检查更新" Click="OnCheckUpdates" Margin="0,0,14,0"/>
-                                    <CheckBox x:Name="CheckUpdatesCheckBox" Grid.Column="2" Content="启动时检查更新" VerticalAlignment="Center"/>
+                                    <CheckBox x:Name="CheckUpdatesCheckBox" Grid.Column="2" Content="启动时检查更新"
+                                              VerticalAlignment="Center" Checked="OnSettingsChanged" Unchecked="OnSettingsChanged"/>
                                 </Grid>
                             </Border>
                         </Grid>
@@ -555,9 +592,11 @@
                     <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
                             Margin="0,16,0,0" Padding="0,16,0,0">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="SaveSettingsButton" Content="保存设置" Style="{StaticResource PrimaryButton}"
+                                    <TextBlock x:Name="SettingsDirtyText" Text="有未保存修改" Foreground="#B45309"
+                                               VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,12,0"/>
+                                    <Button x:Name="SaveSettingsButton" Content="保存设置" Style="{StaticResource PrimaryButton}"
                                     Click="OnSaveSettings" Margin="0,0,8,0"/>
-                            <Button Content="导出配置" Click="OnSaveConfigFile"/>
+                            <Button Content="立即保存配置" Click="OnSaveConfigFile"/>
                         </StackPanel>
                     </Border>
                 </Grid>

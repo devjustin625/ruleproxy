@@ -14,8 +14,7 @@ public sealed class ProcessDetector
 
     private readonly object _lock = new();
     private Dictionary<int, (int Pid, string Name)> _map = new();
-    private readonly Dictionary<int, string> _nameCache = new();
-    private readonly Dictionary<int, string> _exeCache = new();
+    private readonly Dictionary<int, CachedProcess> _processCache = new();
     private DateTime _lastRefresh = DateTime.MinValue;
     private const double RefreshInterval = 1.0;
     private const double MinScanInterval = 0.5;
@@ -41,7 +40,7 @@ public sealed class ProcessDetector
                 return;
             }
             _lastRefresh = now;
-            var map = new Dictionary<int, (int, string)>();
+            var map = new Dictionary<int, (int Pid, string Name)>();
             foreach (var (localPort, pid) in EnumerateTcpConnections())
             {
                 if (localPort > 0 && pid > 0)
@@ -49,9 +48,11 @@ public sealed class ProcessDetector
                     map[localPort] = (pid, Name(pid));
                 }
             }
-            if (map.Count > 0)
+            _map = map;
+            var livePids = map.Values.Select(value => value.Pid).ToHashSet();
+            foreach (var pid in _processCache.Keys.Where(pid => !livePids.Contains(pid)).ToList())
             {
-                _map = map;
+                _processCache.Remove(pid);
             }
         }
     }
@@ -92,49 +93,44 @@ public sealed class ProcessDetector
 
     private string Name(int pid)
     {
-        if (_nameCache.TryGetValue(pid, out var cached))
-        {
-            return cached;
-        }
-        var name = pid.ToString();
-        try
-        {
-            name = Process.GetProcessById(pid).ProcessName;
-        }
-        catch
-        {
-            name = pid.ToString();
-        }
-        _nameCache[pid] = name;
-        if (_nameCache.Count > 2000)
-        {
-            _nameCache.Clear();
-        }
-        return name;
+        return GetProcess(pid).Name;
     }
 
     private string Exe(int pid)
     {
-        if (_exeCache.TryGetValue(pid, out var cached))
-        {
-            return cached;
-        }
-        var path = "";
+        return GetProcess(pid).Exe;
+    }
+
+    private CachedProcess GetProcess(int pid)
+    {
         try
         {
-            path = Process.GetProcessById(pid).MainModule?.FileName ?? "";
+            using var process = Process.GetProcessById(pid);
+            var startTime = process.StartTime.ToUniversalTime();
+            if (_processCache.TryGetValue(pid, out var cached) && cached.StartTimeUtc == startTime)
+            {
+                return cached;
+            }
+
+            var current = new CachedProcess(startTime, process.ProcessName, TryGetExecutablePath(process));
+            _processCache[pid] = current;
+            return current;
         }
         catch
         {
-            path = "";
+            var fallback = new CachedProcess(DateTime.MinValue, pid.ToString(), "");
+            _processCache[pid] = fallback;
+            return fallback;
         }
-        _exeCache[pid] = path;
-        if (_exeCache.Count > 2000)
-        {
-            _exeCache.Clear();
-        }
-        return path;
     }
+
+    private static string TryGetExecutablePath(Process process)
+    {
+        try { return process.MainModule?.FileName ?? ""; }
+        catch { return ""; }
+    }
+
+    private sealed record CachedProcess(DateTime StartTimeUtc, string Name, string Exe);
 
     private static IEnumerable<(int LocalPort, int Pid)> EnumerateTcpConnections()
     {

@@ -49,6 +49,12 @@ public sealed class ProxyEngine
             return;
         }
         var cfg = _configGetter();
+        if (!cfg.IsValidForListening(out var configError))
+        {
+            Log($"代理引擎启动失败：{configError}");
+            StateChanged?.Invoke();
+            return;
+        }
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
         _ = Task.Run(() => _ = _detector.RefreshLoopAsync(token), token);
@@ -132,6 +138,15 @@ public sealed class ProxyEngine
             totalDown = _totalDown;
         }
         return (active, history, totalUp, totalDown);
+    }
+
+    public void ClearHistory()
+    {
+        lock (_historyLock)
+        {
+            _history.Clear();
+        }
+        StateChanged?.Invoke();
     }
 
     public IReadOnlyList<string> DrainLogs()
@@ -296,7 +311,7 @@ public sealed class ProxyEngine
                 if (extra.Length > 0)
                 {
                     await remote.WriteAsync(extra, ct);
-                    session.UpBytes += extra.Length;
+                    session.AddUpBytes(extra.Length);
                 }
                 await RelayAsync(clientStream, remote, session, ct);
             }
@@ -350,8 +365,9 @@ public sealed class ProxyEngine
             {
                 headBytes = head;
             }
+            headBytes = AddConnectionCloseHeader(headBytes);
             await remoteStream.WriteAsync(headBytes, ct);
-            session.UpBytes += headBytes.Length + extra.Length;
+            session.AddUpBytes(headBytes.Length + extra.Length);
             if (extra.Length > 0)
             {
                 await remoteStream.WriteAsync(extra, ct);
@@ -379,9 +395,13 @@ public sealed class ProxyEngine
                 return;
             }
             var methodsCount = header[1];
-            if (methodsCount > 0)
+            var methods = methodsCount > 0
+                ? await RecvExactAsync(clientStream, methodsCount, token)
+                : Array.Empty<byte>();
+            if (!methods.Contains((byte)0x00))
             {
-                await RecvExactAsync(clientStream, methodsCount, token);
+                await clientStream.WriteAsync(new byte[] { 0x05, 0xFF }, token);
+                return;
             }
             await clientStream.WriteAsync(new byte[] { 0x05, 0x00 }, token); // 无认证
 
@@ -473,11 +493,10 @@ public sealed class ProxyEngine
 
     private void Finalize(ConnectionSession session, string status)
     {
-        if (session.Done)
+        if (!session.TryComplete())
         {
             return;
         }
-        session.Done = true;
         session.Status = status;
         _active.TryRemove(session.Id, out _);
         lock (_historyLock)
@@ -492,30 +511,55 @@ public sealed class ProxyEngine
         }
     }
 
-    private static ConnectionSession Clone(ConnectionSession s) => new()
+    private static ConnectionSession Clone(ConnectionSession s)
     {
-        Id = s.Id,
-        Timestamp = s.Timestamp,
-        Pid = s.Pid,
-        ProcessName = s.ProcessName,
-        ExePath = s.ExePath,
-        DestHost = s.DestHost,
-        DestPort = s.DestPort,
-        SrcPort = s.SrcPort,
-        RuleName = s.RuleName,
-        Action = s.Action,
-        Status = s.Status,
-        UpBytes = s.UpBytes,
-        DownBytes = s.DownBytes,
-        Done = s.Done
-    };
+        var clone = new ConnectionSession
+        {
+            Id = s.Id,
+            Timestamp = s.Timestamp,
+            Pid = s.Pid,
+            ProcessName = s.ProcessName,
+            ExePath = s.ExePath,
+            DestHost = s.DestHost,
+            DestPort = s.DestPort,
+            SrcPort = s.SrcPort,
+            RuleName = s.RuleName,
+            Action = s.Action,
+            Status = s.Status
+        };
+        clone.AddUpBytes(s.UpBytes);
+        clone.AddDownBytes(s.DownBytes);
+        if (s.Done)
+        {
+            clone.TryComplete();
+        }
+        return clone;
+    }
 
     // ------------------------------------------------------------- 工具
 
+    private static byte[] AddConnectionCloseHeader(byte[] head)
+    {
+        var text = Encoding.Latin1.GetString(head);
+        var marker = "\r\n\r\n";
+        var index = text.IndexOf(marker, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            return head;
+        }
+
+        var withoutEnd = text[..index];
+        var lines = withoutEnd.Split("\r\n", StringSplitOptions.None)
+            .Where(line => !line.StartsWith("Connection:", StringComparison.OrdinalIgnoreCase) &&
+                           !line.StartsWith("Proxy-Connection:", StringComparison.OrdinalIgnoreCase));
+        return Encoding.Latin1.GetBytes(string.Join("\r\n", lines) + "\r\nConnection: close\r\n\r\n");
+    }
+
     private static async Task RelayAsync(Stream client, Stream remote, ConnectionSession session, CancellationToken ct)
     {
-        var up = PumpAsync(client, remote, n => session.UpBytes += n, ct);
-        var down = PumpAsync(remote, client, n => session.DownBytes += n, ct);
+        using var relayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var up = PumpAsync(client, remote, session.AddUpBytes, relayCts.Token);
+        var down = PumpAsync(remote, client, session.AddDownBytes, relayCts.Token);
         await Task.WhenAll(up, down);
     }
 
@@ -540,6 +584,7 @@ public sealed class ProxyEngine
         }
         finally
         {
+            TryShutdownSend(to);
             try
             {
                 to.Flush();
@@ -547,6 +592,14 @@ public sealed class ProxyEngine
             catch
             {
             }
+        }
+    }
+
+    private static void TryShutdownSend(Stream stream)
+    {
+        if (stream is NetworkStream networkStream)
+        {
+            try { networkStream.Socket.Shutdown(SocketShutdown.Send); } catch { }
         }
     }
 
