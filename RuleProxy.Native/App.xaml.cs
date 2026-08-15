@@ -1,5 +1,7 @@
-﻿using System.Runtime.InteropServices;
-using System.Windows;
+﻿using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Threading;
 using RuleProxy.Native.Core;
 
 namespace RuleProxy.Native;
@@ -7,18 +9,23 @@ namespace RuleProxy.Native;
 /// <summary>应用入口：单实例互斥锁，支持 --minimized 启动参数。</summary>
 public partial class App : System.Windows.Application
 {
+    private const string MutexName = @"Local\RuleProxy_SingleInstance";
+    private const string WakeEventName = @"Local\RuleProxy_WakeExisting";
     private Mutex? _mutex;
+    private EventWaitHandle? _wakeEvent;
+    private DispatcherTimer? _wakeTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+
         if (TryApplyUpdate(e.Args))
         {
             Shutdown();
             return;
         }
 
-        const string mutexName = @"Local\RuleProxy_SingleInstance";
-        _mutex = new Mutex(true, mutexName, out var createdNew);
+        _mutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
             WakeExisting();
@@ -27,9 +34,13 @@ public partial class App : System.Windows.Application
         }
 
         base.OnStartup(e);
+    _wakeEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WakeEventName);
         var startMinimized = e.Args.Any(arg => arg is "--minimized" or "-m");
         var window = new MainWindow(startMinimized);
         MainWindow = window;
+    _wakeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+    _wakeTimer.Tick += (_, _) => ProcessWakeRequest();
+    _wakeTimer.Start();
         window.Show();
         if (startMinimized)
         {
@@ -52,29 +63,25 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _wakeTimer?.Stop();
+        _wakeEvent?.Dispose();
         _mutex?.ReleaseMutex();
         _mutex?.Dispose();
         base.OnExit(e);
     }
 
-    private static void WakeExisting()
+    private void ProcessWakeRequest()
     {
-        var hwnd = FindWindowW(null, "RuleProxy — 分应用 / 分端口代理");
-        if (hwnd == IntPtr.Zero)
+        if (_wakeEvent?.WaitOne(0) == true && MainWindow is MainWindow window)
         {
-            return;
+            window.ShowFromTray();
         }
-        ShowWindow(hwnd, 9); // SW_RESTORE
-        SetForegroundWindow(hwnd);
     }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr FindWindowW(string? className, string? windowName);
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
+    private static void WakeExisting()
+    {
+        using var wakeEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WakeEventName, out _);
+        wakeEvent.Set();
+    }
 }
 

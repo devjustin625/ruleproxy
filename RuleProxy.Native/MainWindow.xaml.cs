@@ -702,7 +702,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowFromTray()
+    internal void ShowFromTray()
     {
         Show();
         WindowState = WindowState.Normal;
@@ -787,14 +787,15 @@ public partial class MainWindow : Window
 
         try
         {
+            downloadedExe = Path.GetFullPath(downloadedExe);
+            targetExe = Path.GetFullPath(targetExe);
             var updaterExe = Path.Combine(Path.GetDirectoryName(downloadedExe)!, $"updater-{Guid.NewGuid():N}.exe");
             File.Copy(targetExe, updaterExe, true);
             var startInfo = new ProcessStartInfo(updaterExe) { UseShellExecute = false };
-            startInfo.ArgumentList.Add("--apply-update");
-            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
-            startInfo.ArgumentList.Add(downloadedExe);
-            startInfo.ArgumentList.Add(targetExe);
-            if (_startMinimized) startInfo.ArgumentList.Add("--minimized");
+            foreach (var argument in UpdateService.BuildApplyUpdateArguments(Environment.ProcessId, downloadedExe, targetExe, _startMinimized))
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
             Process.Start(startInfo);
         }
         catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
@@ -804,8 +805,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        OnExit();
+        ExitForUpdate();
     }
+
+    private void ExitForUpdate() => OnExit();
 
     /// <summary>退出前清理系统代理：仅当系统代理正指向本程序监听端口时才清除，
     /// 避免误删用户/其他代理软件（如 Clash 的 7890）设置的代理导致断网。</summary>

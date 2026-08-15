@@ -12,7 +12,10 @@ public sealed class UpdateService
 {
     private const string LatestReleaseUrl = "https://api.github.com/repos/devjustin625/ruleproxy/releases/latest";
     private const string AssetName = "RuleProxy.exe";
+    private static readonly TimeSpan ParentExitTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
+
+    public static string UpdateLogPath => Path.Combine(Path.GetTempPath(), "RuleProxy", "updates", "update.log");
 
     public UpdateService(HttpClient? httpClient = null)
     {
@@ -138,38 +141,117 @@ public sealed class UpdateService
         return Version.TryParse(clean, out var version) ? version : null;
     }
 
-    public static void ApplyUpdate(int parentPid, string downloadedExe, string targetExe, bool minimized)
+    public static IReadOnlyList<string> BuildApplyUpdateArguments(int parentPid, string downloadedExe, string targetExe, bool minimized)
+    {
+        var arguments = new List<string>
+        {
+            "--apply-update",
+            parentPid.ToString(),
+            Path.GetFullPath(downloadedExe),
+            Path.GetFullPath(targetExe)
+        };
+        if (minimized)
+        {
+            arguments.Add("--minimized");
+        }
+        return arguments;
+    }
+
+    public static bool ApplyUpdate(int parentPid, string downloadedExe, string targetExe, bool minimized)
     {
         try
         {
-            if (parentPid > 0)
+            downloadedExe = Path.GetFullPath(downloadedExe);
+            targetExe = Path.GetFullPath(targetExe);
+            WriteUpdateLog($"开始更新。下载文件: {downloadedExe}; 目标文件: {targetExe}");
+            if (!File.Exists(targetExe) || !IsExecutable(downloadedExe))
             {
-                using var parent = Process.GetProcessById(parentPid);
-                parent.WaitForExit();
+                WriteUpdateLog("更新取消：目标文件不存在或下载文件不是有效的可执行文件。");
+                return false;
             }
 
-            if (!IsExecutable(downloadedExe) || !Path.IsPathFullyQualified(targetExe)) return;
+            if (!WaitForParentExit(parentPid))
+            {
+                return false;
+            }
+
             var backupDirectory = Path.Combine(Path.GetTempPath(), "RuleProxy", "updates", "backup-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(backupDirectory);
             var backupPath = Path.Combine(backupDirectory, Path.GetFileName(targetExe));
+            WriteUpdateLog($"备份当前程序到: {backupPath}");
             File.Copy(targetExe, backupPath, true);
             try
             {
+                WriteUpdateLog("替换当前程序。");
                 File.Copy(downloadedExe, targetExe, true);
             }
-            catch
+            catch (Exception ex)
             {
+                WriteUpdateLog($"替换失败，开始回滚: {ex}");
                 File.Copy(backupPath, targetExe, true);
-                return;
+                WriteUpdateLog("回滚完成。");
+                return false;
             }
 
-            var startInfo = new ProcessStartInfo(targetExe) { UseShellExecute = false };
-            if (minimized) startInfo.ArgumentList.Add("--minimized");
-            Process.Start(startInfo);
+            try
+            {
+                var startInfo = new ProcessStartInfo(targetExe) { UseShellExecute = false };
+                if (minimized) startInfo.ArgumentList.Add("--minimized");
+                Process.Start(startInfo);
+                WriteUpdateLog("更新成功，已启动新版本。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                WriteUpdateLog($"启动新版本失败，开始回滚: {ex}");
+                File.Copy(backupPath, targetExe, true);
+                WriteUpdateLog("回滚完成。");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteUpdateLog($"更新失败: {ex}");
+            return false;
+        }
+    }
+
+    private static bool WaitForParentExit(int parentPid)
+    {
+        if (parentPid <= 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            using var parent = Process.GetProcessById(parentPid);
+            if (parent.WaitForExit((int)ParentExitTimeout.TotalMilliseconds))
+            {
+                WriteUpdateLog("主程序已退出。");
+                return true;
+            }
+
+            WriteUpdateLog($"等待主程序退出超时（{ParentExitTimeout.TotalSeconds:0} 秒）。");
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            WriteUpdateLog("主程序已退出。");
+            return true;
+        }
+    }
+
+    private static void WriteUpdateLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(UpdateLogPath)!);
+            File.AppendAllText(UpdateLogPath, $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
         }
         catch
         {
-            // 更新器必须静默失败，避免影响已退出的主程序。
+            // 日志目录不可写时，更新器仍需返回明确的失败结果。
         }
     }
 

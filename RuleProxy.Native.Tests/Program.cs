@@ -18,6 +18,8 @@ Check("更新版本比较同版本", !UpdateService.TryParseRelease("{\"tag_name
 Check("更新版本比较旧版本", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.4\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
 Check("更新 Release 缺少 exe 资产", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"other.exe\",\"browser_download_url\":\"https://example.test/other.exe\"}]}", new Version(1, 2, 5), out _));
 Check("更新 Release 解析可用资产", UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6+commit.1\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out var updateRelease) && updateRelease!.Version == new Version(1, 2, 6));
+var applyArguments = UpdateService.BuildApplyUpdateArguments(1234, @"downloads\RuleProxy.exe", @"target\RuleProxy.exe", minimized: true);
+Check("更新参数使用绝对路径并保留最小化", applyArguments.Count == 5 && applyArguments[0] == "--apply-update" && Path.IsPathFullyQualified(applyArguments[2]) && Path.IsPathFullyQualified(applyArguments[3]) && applyArguments[4] == "--minimized");
 Check("旧配置默认启用更新检查", JsonSerializer.Deserialize<AppConfig>("{}")!.CheckUpdates);
 
 // ---- 1. 系统代理终结点匹配（不读取真实注册表） ----
