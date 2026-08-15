@@ -464,6 +464,12 @@ public partial class MainWindow : Window
         {
             return;
         }
+        if (!UpstreamNameValidator.IsAvailable(_config.Proxies, upstream.Name))
+        {
+            System.Windows.MessageBox.Show(this, "上游代理名称已存在，请使用不重复的名称", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         _config.Proxies.Add(upstream);
         ReloadUpstreamList();
         ReloadActionProxyComboBox();
@@ -482,6 +488,12 @@ public partial class MainWindow : Window
         var updatedUpstream = ReadUpstreamFromEditor();
         if (updatedUpstream is null)
         {
+            return;
+        }
+        if (!UpstreamNameValidator.IsAvailable(_config.Proxies, updatedUpstream.Name, selectedUpstream))
+        {
+            System.Windows.MessageBox.Show(this, "上游代理名称已存在，请使用不重复的名称", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         var previousName = selectedUpstream.Name;

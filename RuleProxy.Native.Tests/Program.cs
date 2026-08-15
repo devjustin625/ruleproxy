@@ -26,7 +26,17 @@ var json = JsonSerializer.Serialize(config);
 var reloaded = JsonSerializer.Deserialize<AppConfig>(json)!;
 Check("config 序列化往返", reloaded.Rules[0].MatchValue == "8080" && reloaded.Proxies[0].Name == "p1" && reloaded.HttpPort == 8888);
 
-// ---- 2. 端口解析 ----
+// ---- 3. 上游名称唯一性 ----
+var namedUpstreams = new List<UpstreamConfig>
+{
+    new() { Name = "clashrev" },
+    new() { Name = "other" }
+};
+Check("添加重复上游名称被拒绝", !UpstreamNameValidator.IsAvailable(namedUpstreams, "CLASHREV"));
+Check("编辑为重复上游名称被拒绝", !UpstreamNameValidator.IsAvailable(namedUpstreams, "clashrev", namedUpstreams[1]));
+Check("当前上游可保留原名称", UpstreamNameValidator.IsAvailable(namedUpstreams, "CLASHREV", namedUpstreams[0]));
+
+// ---- 4. 端口解析 ----
 var ports = RuleRouter.ParsePorts("80,443");
 Check("端口列表解析", ports.Contains(80) && ports.Contains(443) && !ports.Contains(8080));
 var range = RuleRouter.ParsePorts("8000-8002");

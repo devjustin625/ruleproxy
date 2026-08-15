@@ -36,6 +36,16 @@ public sealed class UpstreamConfig
     public override string ToString() => ComboText;
 }
 
+public static class UpstreamNameValidator
+{
+    public static bool IsAvailable(IEnumerable<UpstreamConfig> upstreams, string name, UpstreamConfig? current = null)
+    {
+        return !string.IsNullOrWhiteSpace(name) && !upstreams.Any(upstream =>
+            !ReferenceEquals(upstream, current) &&
+            string.Equals(upstream.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
 public sealed class ProxyRule : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
