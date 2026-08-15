@@ -36,11 +36,21 @@ public static class WinProxy
     /// <summary>判断当前系统代理是否正指向给定监听地址（用于退出时只清除本程序设置的代理）。</summary>
     public static bool IsSetTo(string host, int port)
     {
-        if (!IsEnabled)
+        return IsProxyServerSetTo(IsEnabled, GetProxyServer(), host, port);
+    }
+
+    /// <summary>判断读取到的系统代理配置是否启用且包含给定的代理终结点。</summary>
+    public static bool IsProxyServerSetTo(bool enabled, string? proxyServer, string host, int port)
+    {
+        if (!enabled || string.IsNullOrWhiteSpace(proxyServer))
         {
             return false;
         }
-        return string.Equals(GetProxyServer(), $"{host}:{port}", StringComparison.OrdinalIgnoreCase);
+
+        var endpoint = $"{host}:{port}";
+        return proxyServer.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => value.Contains('=') ? value[(value.IndexOf('=') + 1)..] : value)
+            .Any(value => string.Equals(value, endpoint, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>通知 WinINet 重新读取系统代理设置。</summary>

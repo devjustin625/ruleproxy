@@ -12,7 +12,13 @@ void Check(string name, bool condition)
     if (!condition) failures++;
 }
 
-// ---- 1. 配置序列化往返 ----
+// ---- 1. 系统代理终结点匹配（不读取真实注册表） ----
+Check("系统代理精确终结点匹配", WinProxy.IsProxyServerSetTo(true, "127.0.0.1:8888", "127.0.0.1", 8888));
+Check("系统代理关闭时不匹配", !WinProxy.IsProxyServerSetTo(false, "127.0.0.1:8888", "127.0.0.1", 8888));
+Check("其他端口不匹配", !WinProxy.IsProxyServerSetTo(true, "127.0.0.1:7890", "127.0.0.1", 8888));
+Check("协议映射代理匹配", WinProxy.IsProxyServerSetTo(true, "http=127.0.0.1:8888;https=127.0.0.1:8888", "127.0.0.1", 8888));
+
+// ---- 2. 配置序列化往返 ----
 var config = new AppConfig { DefaultAction = "direct" };
 config.Proxies.Add(new UpstreamConfig { Name = "p1", Type = "http", Host = "127.0.0.1", Port = 7890, Enabled = true });
 config.Rules.Add(new ProxyRule { Name = "r1", MatchType = "dest_port", MatchValue = "8080", Action = "proxy", Proxy = "p1" });

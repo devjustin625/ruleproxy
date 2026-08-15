@@ -10,7 +10,7 @@
     <AssemblyName>RuleProxy</AssemblyName>
     <RootNamespace>RuleProxy.Native</RootNamespace>
     <ApplicationIcon>..\icon.ico</ApplicationIcon>
-    <Version>1.2.3</Version>
+    <Version>1.2.4</Version>
     <PublishSingleFile>false</PublishSingleFile>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>

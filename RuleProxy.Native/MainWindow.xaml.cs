@@ -45,7 +45,7 @@ public partial class MainWindow : Window
         _timer.Tick += (_, _) => RefreshTick();
         _timer.Start();
 
-        _sysProxyActive = WinProxy.IsEnabled;
+        _sysProxyActive = WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort);
         UpdateSysProxyButton();
         UpdateProxyButton();
         UpdateBrowseButtons();
@@ -65,7 +65,7 @@ public partial class MainWindow : Window
             }
             if (_config.LastSysProxyEnabled)
             {
-                EnableSystemProxy();
+                RestoreSystemProxyIfStillSet();
             }
         }
         else if (_config.AutoStartProxy)
@@ -128,7 +128,7 @@ public partial class MainWindow : Window
 
     private void ToggleSystemProxy()
     {
-        if (_sysProxyActive)
+        if (WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort))
         {
             WinProxy.ClearProxy();
         }
@@ -158,8 +158,24 @@ public partial class MainWindow : Window
 
     private void SyncSystemProxyState()
     {
-        _sysProxyActive = WinProxy.IsEnabled;
+        var wasActive = _sysProxyActive;
+        _sysProxyActive = WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort);
+        if (wasActive && !_sysProxyActive)
+        {
+            AppendLog("系统代理已被其他程序关闭或改写；RuleProxy 未自动恢复。请手动重新设置系统代理。");
+        }
         UpdateSysProxyButton();
+    }
+
+    private void RestoreSystemProxyIfStillSet()
+    {
+        if (WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort))
+        {
+            RefreshSystemProxyIfReady();
+            return;
+        }
+
+        AppendLog("上次的系统代理未恢复：当前设置不再指向 RuleProxy，未自动覆盖其他程序。可手动设置系统代理恢复流量。");
     }
 
     private void RefreshSystemProxyIfReady()
@@ -532,6 +548,7 @@ public partial class MainWindow : Window
 
     private void RefreshTick()
     {
+        SyncSystemProxyState();
         if (MainTabs.SelectedIndex == 0)
         {
             var snapshot = _engine.Snapshot();
