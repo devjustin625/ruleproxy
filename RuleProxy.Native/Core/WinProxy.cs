@@ -19,14 +19,14 @@ public static class WinProxy
         key.SetValue("ProxyEnable", 1, RegistryValueKind.DWord);
         key.SetValue("ProxyServer", $"{host}:{port}", RegistryValueKind.String);
         key.SetValue("ProxyOverride", "<local>", RegistryValueKind.String);
-        NotifyChange();
+        Refresh();
     }
 
     public static void ClearProxy()
     {
         using var key = Registry.CurrentUser.CreateSubKey(InternetSettings);
         key.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
-        NotifyChange();
+        Refresh();
     }
 
     /// <summary>读取当前系统代理地址（如 "127.0.0.1:8888"），未启用时返回 null。</summary>
@@ -43,7 +43,8 @@ public static class WinProxy
         return string.Equals(GetProxyServer(), $"{host}:{port}", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void NotifyChange()
+    /// <summary>通知 WinINet 重新读取系统代理设置。</summary>
+    public static void Refresh()
     {
         InternetSetOption(IntPtr.Zero, InternetOptionSettingsChanged, IntPtr.Zero, 0);
         InternetSetOption(IntPtr.Zero, InternetOptionRefresh, IntPtr.Zero, 0);

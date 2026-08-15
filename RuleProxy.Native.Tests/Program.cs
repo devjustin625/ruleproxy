@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using RuleProxy.Native.Core;
@@ -31,12 +32,51 @@ Check("域名通配根域", RuleRouter.HostMatches("*.example.com", "example.com
 Check("域名通配反例", !RuleRouter.HostMatches("*.example.com", "badexample.com"));
 Check("域名精确匹配", RuleRouter.HostMatches("google.com", "google.com"));
 
-// ---- 4. 规则路由 ----
+// ---- 4. HTTP 监听状态 ----
+var occupiedHttpListener = new TcpListener(IPAddress.Loopback, 0);
+occupiedHttpListener.Start();
+var occupiedHttpPort = ((IPEndPoint)occupiedHttpListener.LocalEndpoint).Port;
+var partialEngineConfig = new AppConfig
+{
+    ListenHost = "127.0.0.1",
+    HttpPort = occupiedHttpPort,
+    Socks5Port = FreePort()
+};
+var partialEngine = new ProxyEngine(() => partialEngineConfig);
+partialEngine.Start();
+Check("HTTP 端口被占用时不报告 HTTP 已监听", partialEngine.Running && !partialEngine.HttpListening);
+partialEngine.Stop();
+occupiedHttpListener.Stop();
+
+// ---- 5. 监听异常退出 ----
+var lifecycleEngineConfig = new AppConfig
+{
+    ListenHost = "127.0.0.1",
+    HttpPort = FreePort(),
+    Socks5Port = FreePort()
+};
+var lifecycleEngine = new ProxyEngine(() => lifecycleEngineConfig);
+var lifecycleStateChanges = 0;
+lifecycleEngine.StateChanged += () => Interlocked.Increment(ref lifecycleStateChanges);
+lifecycleEngine.Start();
+var httpListenerField = typeof(ProxyEngine).GetField("_httpListener", BindingFlags.Instance | BindingFlags.NonPublic)!;
+((TcpListener)httpListenerField.GetValue(lifecycleEngine)!).Stop();
+await WaitUntilAsync(() => !lifecycleEngine.HttpListening, TimeSpan.FromSeconds(5));
+Check("HTTP 监听异常退出后清理状态", lifecycleEngine.Running && !lifecycleEngine.HttpListening);
+Check("HTTP 监听异常退出触发状态变更", Volatile.Read(ref lifecycleStateChanges) >= 2);
+lifecycleEngine.Stop();
+
+// ---- 6. 规则路由 ----
 var direct = RuleRouter.PickRoute(config, new RouteContext("", "", "x.com", 80, 12345));
 Check("默认直连", direct.Action == "direct");
 
 var viaProxy = RuleRouter.PickRoute(config, new RouteContext("", "", "x.com", 8080, 12345));
 Check("端口规则走代理", viaProxy.Action == "proxy" && viaProxy.Upstream!.Name == "p1");
+
+config.Proxies[0].Enabled = false;
+var disabledProxy = RuleRouter.PickRoute(config, new RouteContext("", "", "x.com", 8080, 12345));
+Check("已停用上游不参与路由", disabledProxy.Action == "direct" && disabledProxy.Upstream is null);
+config.Proxies[0].Enabled = true;
 
 config.Rules.Add(new ProxyRule { Name = "r2", MatchType = "dest_host", MatchValue = "blocked.com", Action = "block" });
 var blocked = RuleRouter.PickRoute(config, new RouteContext("", "", "blocked.com", 80, 12345));
@@ -48,7 +88,7 @@ folderConfig.Rules.Add(new ProxyRule { Name = "game", MatchType = "process", Mat
 var folder = RuleRouter.PickRoute(folderConfig, new RouteContext("game", @"c:\games\game.exe", "x.com", 80, 12345));
 Check("进程文件夹规则", folder.Action == "proxy");
 
-// ---- 5. 端到端：启动真实代理引擎，直连回环目标 ----
+// ---- 7. 端到端：启动真实代理引擎，直连回环目标 ----
 var httpPort = FreePort();
 var socksPort = FreePort();
 var engineConfig = new AppConfig
@@ -61,6 +101,7 @@ var engineConfig = new AppConfig
 var engine = new ProxyEngine(() => engineConfig);
 engine.Start();
 Check("引擎启动", engine.Running);
+Check("HTTP 监听就绪", engine.HttpListening);
 
 var echoListener = new TcpListener(IPAddress.Loopback, 0);
 echoListener.Start();
@@ -170,6 +211,15 @@ static int FreePort()
     var port = ((IPEndPoint)listener.LocalEndpoint).Port;
     listener.Stop();
     return port;
+}
+
+static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+{
+    var deadline = DateTime.UtcNow + timeout;
+    while (!condition() && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(25);
+    }
 }
 
 static async Task<string> ReadToEndAsync(NetworkStream stream, CancellationToken token)

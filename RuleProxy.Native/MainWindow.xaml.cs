@@ -65,9 +65,7 @@ public partial class MainWindow : Window
             }
             if (_config.LastSysProxyEnabled)
             {
-                WinProxy.SetProxy(_config.ListenHost, _config.HttpPort);
-                _sysProxyActive = true;
-                UpdateSysProxyButton();
+                EnableSystemProxy();
             }
         }
         else if (_config.AutoStartProxy)
@@ -96,11 +94,16 @@ public partial class MainWindow : Window
         _engine.Start();
     }
 
-    private void OnEngineStateChanged() => Dispatcher.Invoke(UpdateProxyButton);
+    private void OnEngineStateChanged() => Dispatcher.Invoke(() =>
+    {
+        UpdateProxyButton();
+        RefreshSystemProxyIfReady();
+    });
 
     private void UpdateProxyButton()
     {
         var running = _engine.Running;
+        var httpListening = _engine.HttpListening;
         ToggleProxyIcon.Text = running ? "\uE769" : "\uE768"; // Stop / Play
         ToggleProxyText.Text = running ? "停止代理" : "启动代理";
         var color = running
@@ -114,7 +117,9 @@ public partial class MainWindow : Window
         }
         StatusDot.Fill = running ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E))
                                  : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF));
-        StatusText.Text = running ? "代理运行中" : "代理未启动";
+        StatusText.Text = running
+            ? (httpListening ? "代理运行中" : "代理运行中（HTTP 未监听）")
+            : "代理未启动";
     }
 
     // ------------------------------------------------------------- 系统代理
@@ -129,10 +134,40 @@ public partial class MainWindow : Window
         }
         else
         {
-            WinProxy.SetProxy(_config.ListenHost, _config.HttpPort);
+            EnableSystemProxy();
         }
+        SyncSystemProxyState();
+    }
+
+    private void EnableSystemProxy()
+    {
+        if (!_engine.HttpListening)
+        {
+            StartProxy();
+        }
+        if (!_engine.HttpListening)
+        {
+            System.Windows.MessageBox.Show(this, "HTTP 代理监听未就绪，未设置系统代理。", "RuleProxy",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            SyncSystemProxyState();
+            return;
+        }
+        WinProxy.SetProxy(_config.ListenHost, _config.HttpPort);
+        SyncSystemProxyState();
+    }
+
+    private void SyncSystemProxyState()
+    {
         _sysProxyActive = WinProxy.IsEnabled;
         UpdateSysProxyButton();
+    }
+
+    private void RefreshSystemProxyIfReady()
+    {
+        if (_engine.HttpListening && WinProxy.IsSetTo(_config.ListenHost, _config.HttpPort))
+        {
+            WinProxy.Refresh();
+        }
     }
 
     private void UpdateSysProxyButton()

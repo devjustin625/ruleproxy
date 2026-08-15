@@ -32,7 +32,8 @@ public sealed class ProxyEngine
     public event Action? StateChanged;
     public event Action? LogsChanged;
 
-    public bool Running => _cts is not null;
+    public bool Running => _cts is not null && (_httpListener is not null || _socksListener is not null);
+    public bool HttpListening => _httpListener is not null;
 
     // ------------------------------------------------------------- 生命周期
 
@@ -93,7 +94,7 @@ public sealed class ProxyEngine
 
     public void Stop()
     {
-        if (!Running)
+        if (_cts is null)
         {
             return;
         }
@@ -177,11 +178,33 @@ public sealed class ProxyEngine
             {
                 break;
             }
-            catch (SocketException)
+            catch (Exception e)
             {
+                if (!ct.IsCancellationRequested)
+                {
+                    MarkListenerUnavailable(listener, isSocks, e);
+                }
                 break;
             }
             _ = Task.Run(() => HandleConnectionAsync(client, isSocks, ct), CancellationToken.None);
+        }
+    }
+
+    private void MarkListenerUnavailable(TcpListener listener, bool isSocks, Exception error)
+    {
+        var cleared = isSocks
+            ? Interlocked.CompareExchange(ref _socksListener, null, listener) == listener
+            : Interlocked.CompareExchange(ref _httpListener, null, listener) == listener;
+        if (!cleared)
+        {
+            return;
+        }
+
+        Log($"{(isSocks ? "SOCKS5" : "HTTP")} 代理监听异常退出: {error.Message}");
+        StateChanged?.Invoke();
+        if (_httpListener is null && _socksListener is null)
+        {
+            Stop();
         }
     }
 

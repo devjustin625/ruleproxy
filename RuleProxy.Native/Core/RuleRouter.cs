@@ -145,12 +145,13 @@ public static class RuleRouter
     {
         if (!string.IsNullOrWhiteSpace(name))
         {
-            var named = config.Proxies.FirstOrDefault(proxy => proxy.Name == name && proxy.Enabled)
-                ?? config.Proxies.FirstOrDefault(proxy => proxy.Name == name);
+            var named = config.Proxies.FirstOrDefault(proxy => proxy.Name == name && proxy.Enabled);
             if (named is not null)
             {
                 return named;
             }
+
+            return null;
         }
 
         return config.Proxies.FirstOrDefault(proxy => proxy.Enabled);
