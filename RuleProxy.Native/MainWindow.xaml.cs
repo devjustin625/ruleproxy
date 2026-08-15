@@ -1,5 +1,7 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -17,6 +19,7 @@ public partial class MainWindow : Window
     private readonly AppConfig _config;
     private readonly ProxyEngine _engine;
     private readonly DispatcherTimer _timer;
+    private readonly bool _startMinimized;
     private readonly ObservableCollection<ConnectionSession> _connections = [];
     private readonly ObservableCollection<LogEntry> _logs = [];
     private System.Windows.Forms.NotifyIcon? _tray;
@@ -26,9 +29,10 @@ public partial class MainWindow : Window
     private bool _exiting;
     private bool _sysProxyActive;
 
-    public MainWindow()
+    public MainWindow(bool startMinimized = false)
     {
         InitializeComponent();
+        _startMinimized = startMinimized;
         _config = _store.Load();
         _engine = new ProxyEngine(() => _config);
         _engine.StateChanged += OnEngineStateChanged;
@@ -72,7 +76,7 @@ public partial class MainWindow : Window
         {
             StartProxy();
         }
-
+        Loaded += async (_, _) => await CheckForUpdatesAsync(automatic: true);
     }
 
     // ------------------------------------------------------------- 代理启停
@@ -720,6 +724,89 @@ public partial class MainWindow : Window
         System.Windows.Application.Current.Shutdown();
     }
 
+    private async void OnCheckUpdates(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(automatic: false);
+
+    private async Task CheckForUpdatesAsync(bool automatic)
+    {
+        if (automatic && !_config.CheckUpdates)
+        {
+            return;
+        }
+
+        CheckUpdatesButton.IsEnabled = false;
+        try
+        {
+            var updateService = new UpdateService();
+            var update = await updateService.CheckForUpdateAsync();
+            if (update is null)
+            {
+                if (!automatic)
+                {
+                    System.Windows.MessageBox.Show(this, "当前已是最新版本，或暂时无法检查更新。", "RuleProxy",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                return;
+            }
+
+            AppendLog($"发现新版本 {update.TagName}");
+            if (automatic && _startMinimized)
+            {
+                return;
+            }
+            var result = System.Windows.MessageBox.Show(this, $"发现新版本 {update.TagName}，现在下载并更新吗？", "RuleProxy 更新",
+                MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (result != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var downloadedExe = await updateService.DownloadAsync(update);
+            if (downloadedExe is null)
+            {
+                System.Windows.MessageBox.Show(this, "更新下载失败或文件验证失败。", "RuleProxy 更新",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            StartUpdaterAndShutdown(downloadedExe);
+        }
+        finally
+        {
+            CheckUpdatesButton.IsEnabled = true;
+        }
+    }
+
+    private void StartUpdaterAndShutdown(string downloadedExe)
+    {
+        var targetExe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(targetExe) || !File.Exists(targetExe))
+        {
+            System.Windows.MessageBox.Show(this, "无法确定当前程序路径，未执行更新。", "RuleProxy 更新",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            var updaterExe = Path.Combine(Path.GetDirectoryName(downloadedExe)!, $"updater-{Guid.NewGuid():N}.exe");
+            File.Copy(targetExe, updaterExe, true);
+            var startInfo = new ProcessStartInfo(updaterExe) { UseShellExecute = false };
+            startInfo.ArgumentList.Add("--apply-update");
+            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+            startInfo.ArgumentList.Add(downloadedExe);
+            startInfo.ArgumentList.Add(targetExe);
+            if (_startMinimized) startInfo.ArgumentList.Add("--minimized");
+            Process.Start(startInfo);
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
+        {
+            System.Windows.MessageBox.Show(this, "无法启动更新程序。", "RuleProxy 更新",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        OnExit();
+    }
+
     /// <summary>退出前清理系统代理：仅当系统代理正指向本程序监听端口时才清除，
     /// 避免误删用户/其他代理软件（如 Clash 的 7890）设置的代理导致断网。</summary>
     private void CleanupSystemProxy()
@@ -752,6 +839,8 @@ public partial class MainWindow : Window
         StartMinimizedCheckBox.IsChecked = _config.StartMinimized;
         AutoStartProxyCheckBox.IsChecked = _config.AutoStartProxy;
         RememberLastStateCheckBox.IsChecked = _config.RememberLastState;
+        CheckUpdatesCheckBox.IsChecked = _config.CheckUpdates;
+        CurrentVersionText.Text = $"当前版本：v{UpdateService.CurrentVersion.ToString(3)}";
         AutostartCheckBox.IsChecked = Autostart.IsEnabled;
     }
 
@@ -776,6 +865,7 @@ public partial class MainWindow : Window
         _config.StartMinimized = StartMinimizedCheckBox.IsChecked == true;
         _config.AutoStartProxy = AutoStartProxyCheckBox.IsChecked == true;
         _config.RememberLastState = RememberLastStateCheckBox.IsChecked == true;
+        _config.CheckUpdates = CheckUpdatesCheckBox.IsChecked == true;
         if (!_config.RememberLastState)
         {
             // 取消延续状态时，清除上次记录的状态

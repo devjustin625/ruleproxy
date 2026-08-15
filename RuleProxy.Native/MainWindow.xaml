@@ -472,6 +472,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <Grid Grid.Row="0" Margin="16,14">
@@ -530,6 +531,22 @@
                                     </StackPanel>
                                     <CheckBox x:Name="AutostartCheckBox" Grid.Column="1" VerticalAlignment="Center"
                                               Click="OnAutostartCheckChanged"/>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Row="4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                                <Grid Margin="16,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="软件更新" FontWeight="Medium" Foreground="{StaticResource TextBrush}"/>
+                                        <TextBlock x:Name="CurrentVersionText" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,16,0"/>
+                                    </StackPanel>
+                                    <Button x:Name="CheckUpdatesButton" Grid.Column="1" Content="检查更新" Click="OnCheckUpdates" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="CheckUpdatesCheckBox" Grid.Column="2" Content="启动时检查更新" VerticalAlignment="Center"/>
                                 </Grid>
                             </Border>
                         </Grid>

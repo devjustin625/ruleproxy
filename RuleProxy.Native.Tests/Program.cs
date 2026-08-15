@@ -12,6 +12,14 @@ void Check(string name, bool condition)
     if (!condition) failures++;
 }
 
+// ---- 0. 更新版本和 Release 解析（不访问网络） ----
+Check("更新版本去除 v 和提交后缀", UpdateService.NormalizeVersion("v1.2.6+commit.42") == new Version(1, 2, 6));
+Check("更新版本比较同版本", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.5\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
+Check("更新版本比较旧版本", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.4\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out _));
+Check("更新 Release 缺少 exe 资产", !UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"other.exe\",\"browser_download_url\":\"https://example.test/other.exe\"}]}", new Version(1, 2, 5), out _));
+Check("更新 Release 解析可用资产", UpdateService.TryParseRelease("{\"tag_name\":\"v1.2.6+commit.1\",\"html_url\":\"https://example.test/release\",\"assets\":[{\"name\":\"RuleProxy.exe\",\"browser_download_url\":\"https://example.test/RuleProxy.exe\"}]}", new Version(1, 2, 5), out var updateRelease) && updateRelease!.Version == new Version(1, 2, 6));
+Check("旧配置默认启用更新检查", JsonSerializer.Deserialize<AppConfig>("{}")!.CheckUpdates);
+
 // ---- 1. 系统代理终结点匹配（不读取真实注册表） ----
 Check("系统代理精确终结点匹配", WinProxy.IsProxyServerSetTo(true, "127.0.0.1:8888", "127.0.0.1", 8888));
 Check("系统代理关闭时不匹配", !WinProxy.IsProxyServerSetTo(false, "127.0.0.1:8888", "127.0.0.1", 8888));

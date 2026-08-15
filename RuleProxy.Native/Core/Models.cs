@@ -130,6 +130,9 @@ public sealed class AppConfig
     [JsonPropertyName("remember_last_state")]
     public bool RememberLastState { get; set; }
 
+    [JsonPropertyName("check_updates")]
+    public bool CheckUpdates { get; set; } = true;
+
     [JsonPropertyName("last_proxy_running")]
     public bool LastProxyRunning { get; set; }
 

@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using System.Windows;
+using RuleProxy.Native.Core;
 
 namespace RuleProxy.Native;
 
@@ -10,6 +11,12 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (TryApplyUpdate(e.Args))
+        {
+            Shutdown();
+            return;
+        }
+
         const string mutexName = @"Local\RuleProxy_SingleInstance";
         _mutex = new Mutex(true, mutexName, out var createdNew);
         if (!createdNew)
@@ -21,13 +28,26 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
         var startMinimized = e.Args.Any(arg => arg is "--minimized" or "-m");
-        var window = new MainWindow();
+        var window = new MainWindow(startMinimized);
         MainWindow = window;
         window.Show();
         if (startMinimized)
         {
             window.HideToTray(showNotification: false);
         }
+    }
+
+    private static bool TryApplyUpdate(string[] args)
+    {
+        if (args.Length is < 4 or > 5 || args[0] != "--apply-update" ||
+            !int.TryParse(args[1], out var parentPid) ||
+            (args.Length == 5 && args[4] != "--minimized"))
+        {
+            return false;
+        }
+
+        UpdateService.ApplyUpdate(parentPid, args[2], args[3], args.Length == 5);
+        return true;
     }
 
     protected override void OnExit(ExitEventArgs e)
